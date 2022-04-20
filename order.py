@@ -38,3 +38,19 @@ class Order:
             self.order[user] = 0
         self.order[user] = self.order[user] - (self.price + self.tip)
         self.paid = True
+
+    def to_string(self):
+        s = (
+            "Order",
+            "\n".join([f"{person}:\t{betrag}" for person, betrag in self.order.items()]),
+            f"Tip:\t{str(self.tip)}",
+            f"Total:\t{str(self.price)}"
+        )
+        return "\n".join(s)
+
+if __name__ == '__main__':
+    o = Order()
+    o.add_pos("Sven", 12.5)
+    o.add_pos("Markus", 13.50)
+    o.add_tip(20)
+    print(o.to_string())
