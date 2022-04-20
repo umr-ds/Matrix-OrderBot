@@ -47,10 +47,3 @@ class Order:
             f"Total:\t{str(self.price)}"
         )
         return "\n".join(s)
-
-if __name__ == '__main__':
-    o = Order()
-    o.add_pos("Sven", 12.5)
-    o.add_pos("Markus", 13.50)
-    o.add_tip(20)
-    print(o.to_string())
