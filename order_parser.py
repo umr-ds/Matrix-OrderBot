@@ -1,22 +1,38 @@
 import config
+from order import Order
 
 
 def parse_input(input, connection, cursor, order):
     key_word = input[0]
     cmd = config.commands
-    if key_word in cmd[0]:  # add user
-        add_user(cursor, connection, input)
+    msg = "empty string"
+    if key_word in cmd[4]:      #start
+        return True, Order(), "Started Transaction"
+    if key_word in cmd[5]:      #abort
+        return True, None, "Aborted Transaction"
+    if key_word in cmd[6]:      #commit order
+        if len(input) > 1:
+            commit_order(input, connection, cursor, order )
+            return True, None, order.to_string()
+    if key_word in cmd[0]:      # add user
+        username, servername = add_user(cursor, connection, input)
+        return False, order, f"added User: {username},{servername}"
+    if order is None:
+        return False, order, "No order active atm, user Start"
     if key_word in cmd[1]:
-        add_order(cursor, connection, input, order)
+        msg = add_order(cursor, connection, input, order)
     if key_word in cmd[2]:
         remove_pos_from_order(input, order)
+        msg = "removed pos (debug, change later)"
     if key_word in cmd[3]:
         add_tip(input, order)
+        msg = "added tip (debug, change later)"
+    return False, order, msg
 
 
 def add_user(cursor, conn, input):
     if len(input) < 2:
-        return
+        return "No", "User (Debug)"
     cursor.execute("SELECT name from participant")
     all_user = cursor.fetchall()
     print(all_user)
@@ -26,6 +42,7 @@ def add_user(cursor, conn, input):
     else:
         cursor.execute("INSERT INTO participant(NAME, USERNAME) values (%s, %s)", (input[1], input[1] + "@Homeserver"))
         conn.commit()
+    return input[1], input[1] + "@Homeserver"
 
 
 def add_order(cursor, connection, input, order):
@@ -36,6 +53,7 @@ def add_order(cursor, connection, input, order):
     if input[1] not in all_user:
         add_user(cursor, connection, input[0:2])
     order.add_pos(input[1], float(input[2]))
+    return f"Order added for {input[1]} with {input[2]}"
 
 
 def add_tip(input, order):
