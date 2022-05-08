@@ -10,7 +10,6 @@ def setup(connection, cursor):
             username VARCHAR, 
             user_total NUMERIC DEFAULT 0
             )''')
-    connection.commit()
     cursor.execute('''CREATE TABLE orders
             (
             order_id SERIAL PRIMARY KEY,
@@ -20,7 +19,6 @@ def setup(connection, cursor):
             timestp date,
             CHECK (total = price + tip)
             )''')
-    connection.commit()
     cursor.execute('''CREATE TABLE cuts
             (
             order_id INT REFERENCES orders(order_id), 
