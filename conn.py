@@ -6,6 +6,7 @@ from psycopg2 import connect
 
 import order_parser
 import setup
+from os.path import exists
 from config import config
 
 
@@ -28,17 +29,28 @@ class Bot:
             self.conn = connect(**config('postgresql'))
             self.cursor = self.conn.cursor()
             self.client = AsyncClient(conf['server'], conf['username'])
+
             print(await self.client.login(conf['password']))
+            if exists("next_batch"):
+                with open("next_batch", "r") as next_batch_token:
+                    self.client.next_batch = next_batch_token.read()
+            else:
+                open("next_batch", "w")
+
             setup.setup(self.conn, self.cursor)
         except Exception as error:
             print(error)
-        #finally:
-            #self.cursor.close()
-            #self.conn.close()
+        # finally:
+        # self.cursor.close()
+        # self.conn.close()
 
         self.client.add_event_callback(self.message_cb, RoomMessageText)
-        while(True):
-            sync_response = await self.client.sync(3000)
+        while True:
+            # todo: check out sync next_batch tokens to only get new messages
+            #   https://matrix.org/docs/guides/usage-of-matrix-nio#use-of-sync-next_batch-tokens
+            sync_response = await self.client.sync(60000)
+            with open("next_batch", "w") as next_batch_token:
+                next_batch_token.write(sync_response.next_batch)
             print(self.msg, self.room, len(self.msg))
             while len(self.msg) > 0:
                 content = {
@@ -48,15 +60,16 @@ class Bot:
                 }
                 await self.client.room_send(self.room, "m.room.message", content)
 
-
     async def message_cb(self, room, event):
         print(event.body)
         if event.sender == self.username:
             print("own message, ignored")
-        inp = event.body.lower().split()
-        result, order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order)
-        print(result,order,message)
-        if message == "No order active atm, user Start" or message == "empty string":
+            return
+        inp = event.body.split()
+        result, order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
+        print(result, order, message)
+        # todo: das geht besser, hoffentlich
+        if message == "No order active atm, user 'start' " or message == "empty string":
             return
         self.msg.append(message)
         if result:

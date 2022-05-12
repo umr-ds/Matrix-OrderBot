@@ -16,8 +16,7 @@ def setup(connection, cursor):
             total NUMERIC CHECK (total >= 0),
             price NUMERIC CHECK (price >= 0),
             tip NUMERIC CHECK (tip >= 0),
-            timestp date,
-            CHECK (total = price + tip)
+            timestp date
             )''')
     cursor.execute('''CREATE TABLE cuts
             (
