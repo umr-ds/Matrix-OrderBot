@@ -1,19 +1,18 @@
 from configparser import ConfigParser
 
 commands = [
-    ["user"],  # add user
-    ["add"],  # add pos to order
-    ["remove"],  # add all pos from given user
-    ["tip"],  # add tip
-    ["start"],  # start new order
-    ["abort"],  # abort order
-    ["end"],  # end order and distribute cut
-    ["help"],
-    ["print"]
+    "user",  # add user
+    "add",  # add pos to order
+    "remove",  # add all pos from given user
+    "tip",  # add tip
+    "start",  # start new order
+    "abort",  # abort order
+    "end",  # end order and distribute cut
+    "help",
+    "print"
     # todo: extend list/extend each list
     # todo: help string erstellen
     #   all cmds + keywords/positions/uses
-
 ]
 
 
