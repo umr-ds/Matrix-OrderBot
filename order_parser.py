@@ -1,7 +1,7 @@
 import re
-
 import config
 from order import Order
+import argparse
 
 cmd = config.commands
 
@@ -126,6 +126,7 @@ def add_order(cursor, connection, inp, order, sender):
         order.add_pos(sender, inp[1], float(inp[2]))
         return f"Order {inp[1]} added for {sender} with {inp[2]}€"
     return
+
 
 def add_tip(inp, order):
     if len(inp) != 2 or not is_number(inp[1]) or float(inp[1]) < 0:
