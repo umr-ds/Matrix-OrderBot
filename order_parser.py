@@ -18,30 +18,37 @@ def parse_input(inp, connection, cursor, order, sender):
         meal_name = " ".join(namespace["meal-name"])
         print(name, meal_name, namespace["price"])
         order_to_return.add_pos(user=name, item=meal_name, amount=namespace["price"])
-        return True, order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {namespace['price']}"
+        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {namespace['price']}"
+
+    def user(*_):
+        return order, "I am just a stub"
 
     def start(namespace):
         if order is None:
             if namespace["name"] is None or namespace["name"] == []:
-                return True, Order(), "Started new Order"
+                return Order(), "Started new Order"
             else:
-                return True, Order(" ".join(namespace["name"])), "Started new Order with Name: " + " ".join(
+                return Order(" ".join(namespace["name"])), "Started new Order with Name: " + " ".join(
                     namespace["name"])
         else:
-            return True, order, "Finish current order first"
+            return order, "Finish current order first"
 
     def cancel(*_):
-        return True, None, "Cancelled current order"
+        return None, "Cancelled current order"
 
     def tip(namespace):
+        if order is None:
+            return None, "start an Order first!"
         ttip = namespace["tip"]
         if ttip > 0:
             order.add_tip(ttip)
-            return True, order, f"Added tip {ttip}"
+            return order, f"Added tip {ttip}"
         else:
-            return True, order, f"negative tip"
+            return order, f"negative tip"
 
     def remove(namespace):
+        if order is None:
+            return None, "start an Order first"
         remove_all = namespace["all"]
         order_to_remove = namespace["order"]
         if namespace["name"] is None:
@@ -51,22 +58,24 @@ def parse_input(inp, connection, cursor, order, sender):
 
         if remove_all or order_to_remove is None:
             order.remove(name)
-            return True, order, f"Removed user {name} from order"
+            return order, f"Removed user {name} from order"
         else:
             order.remove(name, order_to_remove)
-            return True, order, f"Removed order {order} for {name} from order"
+            return order, f"Removed order {order} for {name} from order"
 
     def pay(namespace):
+        if order is None:
+            return None, "Start an order first"
         if namespace["name"] is None:
             name = sender
         else:
             name = namespace["name"]
         if namespace["amount"] is None or namespace["amount"] >= order.price + order.tip:
             order.pay(name)
-            return True, None, "msg"
+            return None, "Order paid\n" + order
         else:
             order.pay(name, namespace["amount"])
-            return True, order, "msg"
+            return order, f"{namespace[amount]} of order {order.tip + order.price} paid. (Debug, show remaining.)"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -114,6 +123,6 @@ def parse_input(inp, connection, cursor, order, sender):
             for parser_action in possible_parsers:
                 for choice, subparser in parser_action.choices.items():
                     if choice == inp[0]:
-                        return False, order, subparser.format_help()
+                        return order, subparser.format_help()
         else:
-            False, order, order_parser.format_help()
+            return order, order_parser.format_help()

@@ -66,14 +66,10 @@ class Bot:
             print("own message, ignored")
             return
         inp = event.body.split()
-        result, order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
-        print(result, order, message)
-        # todo: das geht besser, hoffentlich
-        if message == "No order active atm, user 'start' " or message == "empty string":
-            return
+        order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
+        print(order, message)
         self.msg.append(message)
-        if result:
-            self.order = order
+        self.order = order
         if self.order is not None:
             pprint(vars(self.order))
 
