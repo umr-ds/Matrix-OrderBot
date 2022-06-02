@@ -82,35 +82,35 @@ def parse_input(inp, connection, cursor, order, sender):
 
     add_parser = subparser.add_parser(cmd[1], help="adds order")
     add_parser.set_defaults(func=add)
-    add_parser.add_argument("--name", "-n", type=str)
-    add_parser.add_argument("meal-name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"])
-    add_parser.add_argument("price", type=float)
+    add_parser.add_argument("--name", "-n", type=str, help="orderer, if different from sender")
+    add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"], help="name of order")
+    add_parser.add_argument("price", type=float, help="price of order")
 
     start_parser = subparser.add_parser(cmd[4], help="starts a new order")
     start_parser.set_defaults(func=start)
-    start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=None)
+    start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=None, help="name of order")
 
     abort_parser = subparser.add_parser(cmd[5], help="cancels current order")
     abort_parser.set_defaults(func=cancel)
 
-    user_parser = subparser.add_parser(cmd[0], help="adds user to system")
+    user_parser = subparser.add_parser(cmd[0], help=argparse.SUPPRESS)
     user_parser.set_defaults(func=user)
     user_parser.add_argument("--name", "-n", type=str)
 
     tip_parser = subparser.add_parser(cmd[3], help="added tip to order")
     tip_parser.set_defaults(func=tip)
-    tip_parser.add_argument("tip", type=float)
+    tip_parser.add_argument("tip", type=float, help="tip amount")
 
     remove_parser = subparser.add_parser(cmd[2], help="remove pos from order")
     remove_parser.set_defaults(func=remove)
-    remove_parser.add_argument("--name", "-n", type=str)
-    remove_parser.add_argument("--all", "-a", action='store_true')
-    remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE)
+    remove_parser.add_argument("--name", "-n", type=str, help="orderer, if different from sender")
+    remove_parser.add_argument("--all", "-a", action='store_true', help="if this flag is set, all orders from current orderer are removed")
+    remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE, help="name of order, otherwise all are removed (see -a flag)")
 
     end_parser = subparser.add_parser(cmd[6], help="finish order")
     end_parser.set_defaults(func=pay)
-    end_parser.add_argument("--name", "-n", type=str)
-    end_parser.add_argument("--amount", "-a", type=float)
+    end_parser.add_argument("--name", "-n", type=str, help="payer, if different from sender")
+    end_parser.add_argument("--amount", "-a", type=float, help="amount paid, if not specified, everything is paid, and the order is finished")
 
     try:
         args = order_parser.parse_args(inp)
