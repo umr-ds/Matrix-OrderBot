@@ -1,4 +1,3 @@
-# It's a class that represents an order
 class Order:
 
     def __init__(self, name="Order"):
@@ -43,19 +42,25 @@ class Order:
         print(self.return_data())
         self.paid = None
 
-    def remove(self, user):
+    def remove(self, user, item=None):
         """
-        It removes a user from the order dictionary and subtracts the price of the items they ordered
-        from the total price
+        The function removes an item from the order, or removes the entire order if no item is specified
 
-        :param user: the user who is ordering
+        :param user: the name of the user
+        :param item: the item to be removed
         """
+
         if user not in self.order:
             print(user, "not in order")
-        else:
-            for item in self.order[user]:
-                self.price = self.price - item[1]
+        elif user is None:
+            for entry in self.order[user]:
+                self.price = self.price - entry[1]
             del self.order[user]
+        else:
+            for c, entry in enumerate(self.order[user]):
+                if entry[0] == item:
+                    self.price = self.price - entry[1]
+                    self.order[user].remove(c)
         print(self.return_data())
 
     def add_tip(self, tip):
@@ -90,12 +95,20 @@ class Order:
         if user in self.order:
             return sum([item[0] for item in self.order[user]])
 
-    def pay(self, user):
+    def pay(self, user, amount=None):
         """
-        It adds a tuple to the order dictionary, with the first element being a string and the second element being the
-        negative of the price plus the tip
+        It takes in a user and an amount, and if the amount is None, it adds a tuple to the order dictionary with the user
+        as the key and the tuple as the value. The tuple contains the string "Payout (debug)" and the negative of the price
+        plus the tip. It also sets the paid variable to the user. If the amount is not None, it adds a tuple to the order
+        dictionary with the user as the key and the tuple as the value. The tuple contains the string "Payout (debug)" and
+        the negative of the amount
 
         :param user: The user who is paying
+        :param amount: The amount of money to be paid
         """
-        self.order[user].append(("Payout (debug)", -(self.price + self.tip)))
-        self.paid = user
+
+        if amount is None:
+            self.order[user].append(("Payout (debug)", -(self.price + self.tip)))
+            self.paid = user
+        else:
+            self.order[user].append(("Payout (debug)", -amount))

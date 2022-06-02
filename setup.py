@@ -16,13 +16,13 @@ def setup(connection, cursor):
             total NUMERIC CHECK (total >= 0),
             price NUMERIC CHECK (price >= 0),
             tip NUMERIC CHECK (tip >= 0),
-            timestp date
+            timestamp DATE
             )''')
     cursor.execute('''CREATE TABLE cuts
             (
             order_id INT REFERENCES orders(order_id), 
             id INT REFERENCES participant(id),
             cut NUMERIC NOT NULL,
-            timestp date
+            timestamp DATE
             )''')
     connection.commit()
