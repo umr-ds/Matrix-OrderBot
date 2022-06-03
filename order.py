@@ -17,7 +17,7 @@ class Order:
             f"{self.name}",
             "\n".join([
                 f"{person}:\t {', '.join([' : '.join([item[0], str(item[1])]) for item in betrag if item[0] != 'Payout (debug)'])}"
-                for person, betrag in self.order.items()]),
+                for person, betrag in self.order.items() if not (len(betrag) == 1 and betrag[0][0] == 'Payout (debug)')]),
             f"Tip:\t {str(self.tip)}",
             f"Total:\t {str(self.price)}",
             f"Sum:\t {str(self.tip + self.price)}",
@@ -39,7 +39,6 @@ class Order:
         else:
             self.order[user] = [(item, amount)]
         self.price = self.price + amount
-        print(self.return_data())
         self.paid = None
 
     def remove(self, user, item=None):
@@ -61,7 +60,6 @@ class Order:
                 if entry[0] == item:
                     self.price = self.price - entry[1]
                     self.order[user].remove(c)
-        print(self.return_data())
 
     def add_tip(self, tip):
         """
@@ -77,13 +75,6 @@ class Order:
         **remove_tip**: This function removes the tip from the total bill
         """
         self.tip = 0
-
-    def return_data(self):
-        """
-        The function return_data() returns the order, price, and tip of the object
-        :return: The order, price, and tip are being returned.
-        """
-        return self.order, self.price, self.tip
 
     def sum_order(self, user):
         """
@@ -106,7 +97,8 @@ class Order:
         :param user: The user who is paying
         :param amount: The amount of money to be paid
         """
-
+        if user not in self.order:
+            self.order[user] = []
         if amount is None:
             self.order[user].append(("Payout (debug)", -(self.price + self.tip)))
             self.paid = user
