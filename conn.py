@@ -1,5 +1,4 @@
 import asyncio
-from pprint import pprint
 
 from nio import AsyncClient, RoomMessageText
 from psycopg2 import connect
@@ -51,7 +50,6 @@ class Bot:
             sync_response = await self.client.sync(60000)
             with open("next_batch", "w") as next_batch_token:
                 next_batch_token.write(sync_response.next_batch)
-            print(self.msg, self.room, len(self.msg))
             while len(self.msg) > 0:
                 content = {
                     "body": self.msg.pop(0),
@@ -61,17 +59,17 @@ class Bot:
                 await self.client.room_send(self.room, "m.room.message", content)
 
     async def message_cb(self, room, event):
-        print(event.body)
         if event.sender == self.username:
-            print("own message, ignored")
             return
-        inp = event.body.split()
+        if not event.body.startswith("!orderbot") and not event.body.startswith("!ob"):
+            return
+        inp = event.body.split()[1:]
+        if not inp:
+            return 
         order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
         print(order, message)
         self.msg.append(message)
         self.order = order
-        if self.order is not None:
-            pprint(vars(self.order))
 
 
 async def main():
