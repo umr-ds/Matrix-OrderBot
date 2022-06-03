@@ -13,6 +13,7 @@ def setup(connection, cursor):
     cursor.execute('''CREATE TABLE orders
             (
             order_id SERIAL PRIMARY KEY,
+            name VARCHAR,
             total NUMERIC CHECK (total >= 0),
             price NUMERIC CHECK (price >= 0),
             tip NUMERIC CHECK (tip >= 0),
