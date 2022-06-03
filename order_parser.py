@@ -1,8 +1,41 @@
+import re
+
 import config
 from order import Order
 import argparse
 
 cmd = config.commands
+
+
+def save_order_in_db(order, conn, cur):
+    # register all user in db, if not already in there.
+    cur.execute("SELECT name, username from participant")
+    all_registered_users = [item for tup in cur.fetchall() for item in tup]
+    cur.execute("SELECT nextval(pg_get_serial_sequence('orders', 'order_id'))")
+    cut_id = cur.fetchone()[0]
+    cur.execute("INSERT INTO orders(order_id, total, price, tip, name, timestamp) values (%s, %s, %s, %s, %s, now())",
+                (cut_id, order.price + order.tip, order.price, order.tip, order.name))
+    conn.commit()
+
+    for user in order.order:
+        if user not in all_registered_users:
+            handle = re.match(r"@(\S+):\S+\.\S+", user)
+            if handle:
+                name = handle.group(1)
+                cur.execute("INSERT INTO participant(name,username) VALUES (%s, %s)", (name, user))
+            else:
+                cur.execute("INSERT INTO participant(name) VALUES (%s)", (user,))
+            conn.commit()
+
+        cur.execute("SELECT id from participant where username = %s or name = %s", (user, user))
+        user_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO cuts(order_id, id, cut, timestamp) VALUES (%s, %s, %s, now())",
+                    (cut_id, user_id, sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys())))
+        conn.commit()
+        cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
+                    (sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys()), user_id))
+        conn.commit()
+
 
 def parse_input(inp, connection, cursor, order, sender):
     def add(namespace):
@@ -13,9 +46,9 @@ def parse_input(inp, connection, cursor, order, sender):
         else:
             name = namespace["name"]
         if order_to_return is None:
-            _, order_to_return, msg = start({"name": None})
+            order_to_return, msg = start({"name": None})
             msg = msg + "\n"
-        meal_name = " ".join(namespace["meal-name"])
+        meal_name = " ".join(namespace["order name"])
         print(name, meal_name, namespace["price"])
         order_to_return.add_pos(user=name, item=meal_name, amount=namespace["price"])
         return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {namespace['price']}"
@@ -57,7 +90,7 @@ def parse_input(inp, connection, cursor, order, sender):
             name = namespace["name"]
 
         if remove_all or order_to_remove is None:
-            order.remove(name)
+            order.remove(name, connection, cursor)
             return order, f"Removed user {name} from order"
         else:
             order.remove(name, order_to_remove)
@@ -72,10 +105,11 @@ def parse_input(inp, connection, cursor, order, sender):
             name = namespace["name"]
         if namespace["amount"] is None or namespace["amount"] >= order.price + order.tip:
             order.pay(name)
-            return None, "Order paid\n" + order
+            save_order_in_db(order, connection, cursor)
+            return None, "Order paid\n" + str(order)
         else:
             order.pay(name, namespace["amount"])
-            return order, f"{namespace[amount]} of order {order.tip + order.price} paid. (Debug, show remaining.)"
+            return order, f"{namespace['amount']} of order {order.tip + order.price} paid. (Debug, show remaining.)"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -83,7 +117,8 @@ def parse_input(inp, connection, cursor, order, sender):
     add_parser = subparser.add_parser(cmd[1], help="adds order")
     add_parser.set_defaults(func=add)
     add_parser.add_argument("--name", "-n", type=str, help="orderer, if different from sender")
-    add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"], help="name of order")
+    add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"],
+                            help="name of order")
     add_parser.add_argument("price", type=float, help="price of order")
 
     start_parser = subparser.add_parser(cmd[4], help="starts a new order")
@@ -104,13 +139,16 @@ def parse_input(inp, connection, cursor, order, sender):
     remove_parser = subparser.add_parser(cmd[2], help="remove pos from order")
     remove_parser.set_defaults(func=remove)
     remove_parser.add_argument("--name", "-n", type=str, help="orderer, if different from sender")
-    remove_parser.add_argument("--all", "-a", action='store_true', help="if this flag is set, all orders from current orderer are removed")
-    remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE, help="name of order, otherwise all are removed (see -a flag)")
+    remove_parser.add_argument("--all", "-a", action='store_true',
+                               help="if this flag is set, all orders from current orderer are removed")
+    remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
+                               help="name of order, otherwise all are removed (see -a flag)")
 
     end_parser = subparser.add_parser(cmd[6], help="finish order")
     end_parser.set_defaults(func=pay)
     end_parser.add_argument("--name", "-n", type=str, help="payer, if different from sender")
-    end_parser.add_argument("--amount", "-a", type=float, help="amount paid, if not specified, everything is paid, and the order is finished")
+    end_parser.add_argument("--amount", "-a", type=float,
+                            help="amount paid, if not specified, everything is paid, and the order is finished")
 
     try:
         args = order_parser.parse_args(inp)
@@ -119,7 +157,8 @@ def parse_input(inp, connection, cursor, order, sender):
         return result
     except SystemExit:
         if inp[0] in cmd:
-            possible_parsers = [action for action in order_parser._actions if isinstance(action, argparse._SubParsersAction)]
+            possible_parsers = [action for action in order_parser._actions if
+                                isinstance(action, argparse._SubParsersAction)]
             for parser_action in possible_parsers:
                 for choice, subparser in parser_action.choices.items():
                     if choice == inp[0]:
