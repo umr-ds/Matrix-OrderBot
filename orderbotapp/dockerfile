@@ -1,0 +1,12 @@
+FROM python:3.8
+
+ADD orderbot.py .
+ADD order.py .
+ADD order_parser.py .
+ADD setup.py .
+
+COPY requirements.txt .
+
+RUN pip install -r requirements.txt
+
+CMD ["python", "-u", "./orderbot.py"]
