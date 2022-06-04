@@ -50,7 +50,7 @@ class Order:
         """
 
         if user not in self.order:
-            print(user, "not in order")
+            pass
         elif user is None:
             for entry in self.order[user]:
                 self.price = self.price - entry[1]

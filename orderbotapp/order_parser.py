@@ -1,10 +1,18 @@
+import argparse
 import re
 
-import config
 from order import Order
-import argparse
 
-cmd = config.commands
+cmd = [
+    "user",  # add user
+    "add",  # add pos to order
+    "remove",  # add all pos from given user
+    "tip",  # add tip
+    "start",  # start new order
+    "abort",  # abort order
+    "end",  # end order and distribute cut
+    "help",
+]
 
 
 def save_order_in_db(order, conn, cur):
@@ -49,7 +57,6 @@ def parse_input(inp, connection, cursor, order, sender):
             order_to_return, msg = start({"name": None})
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
-        print(name, meal_name, namespace["price"])
         order_to_return.add_pos(user=name, item=meal_name, amount=namespace["price"])
         return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {namespace['price']}"
 
@@ -153,7 +160,6 @@ def parse_input(inp, connection, cursor, order, sender):
     try:
         args = order_parser.parse_args(inp)
         result = args.func(vars(args))
-        print(result)
         return result
     except SystemExit:
         if inp[0] in cmd:

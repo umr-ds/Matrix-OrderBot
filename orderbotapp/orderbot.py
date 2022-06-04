@@ -1,15 +1,15 @@
 import asyncio
+import datetime
+import os
+from os.path import exists
 
 from nio import AsyncClient, RoomMessageText
 from psycopg2 import connect
 
 import order_parser
-import setup
-from os.path import exists
-from config import config
 
 
-class Bot:
+class Orderbot:
 
     def __init__(self):
         self.client = None
@@ -21,22 +21,20 @@ class Bot:
         self.msg = []
 
     async def connect(self):
-        conf = config('matrix')
-        self.username = conf["username"]
-        self.room = conf["homeroom"]
+        self.username = os.environ["username"]
+        self.room = os.environ["homeroom"]
         try:
-            self.conn = connect(**config('postgresql'))
+            self.conn = connect(os.environ["DBSTRING"])
             self.cursor = self.conn.cursor()
-            self.client = AsyncClient(conf['server'], conf['username'])
-
-            print(await self.client.login(conf['password']))
+            self.client = AsyncClient(os.environ['server'], "@" + str(os.environ['username']))
+            print(datetime.datetime.now(), await self.client.login(os.environ['password']))
             if exists("next_batch"):
                 with open("next_batch", "r") as next_batch_token:
                     self.client.next_batch = next_batch_token.read()
             else:
                 open("next_batch", "w")
 
-            setup.setup(self.conn, self.cursor)
+            # setup.setup(self.conn, self.cursor)
         except Exception as error:
             print(error)
         # finally:
@@ -67,13 +65,13 @@ class Bot:
         if not inp:
             return 
         order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
-        print(order, message)
+        print(datetime.datetime.now(), message)
         self.msg.append(message)
         self.order = order
 
 
 async def main():
-    bot = Bot()
+    bot = Orderbot()
     await bot.connect()
 
 
