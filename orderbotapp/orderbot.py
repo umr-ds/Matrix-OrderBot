@@ -21,13 +21,14 @@ class Orderbot:
         self.msg = []
 
     async def connect(self):
-        self.username = os.environ["username"]
+        self.username = os.environ["m_username"]
         self.room = os.environ["homeroom"]
         try:
+
             self.conn = connect(os.environ["DBSTRING"])
             self.cursor = self.conn.cursor()
-            self.client = AsyncClient(os.environ['server'], "@" + str(os.environ['username']))
-            print(datetime.datetime.now(), await self.client.login(os.environ['password']))
+            self.client = AsyncClient(os.environ['server'], "@" + str(os.environ['m_username']))
+            print(datetime.datetime.now(), await self.client.login(os.environ['m_password']))
             if exists("next_batch"):
                 with open("next_batch", "r") as next_batch_token:
                     self.client.next_batch = next_batch_token.read()
