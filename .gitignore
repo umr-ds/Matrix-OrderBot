@@ -1,4 +1,4 @@
-/orderbotapp/logins.ini
 .idea/
 __pycache__/
 /orderbotapp/next_batch
+*.env
