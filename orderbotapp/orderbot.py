@@ -21,14 +21,13 @@ class Orderbot:
         self.msg = []
 
     async def connect(self):
-        self.username = os.environ["m_username"]
-        self.room = os.environ["homeroom"]
+        self.username = os.environ["MUSERNAME"]
+        self.room = os.environ["MHOMEROOM"]
         try:
-
             self.conn = connect(os.environ["DBSTRING"])
             self.cursor = self.conn.cursor()
-            self.client = AsyncClient(os.environ['server'], "@" + str(os.environ['m_username']))
-            print(datetime.datetime.now(), await self.client.login(os.environ['m_password']))
+            self.client = AsyncClient(os.environ['MSERVER'], "@" + self.username)
+            print(datetime.datetime.now(), await self.client.login(os.environ['MPASSWORD']))
             if exists("next_batch"):
                 with open("next_batch", "r") as next_batch_token:
                     self.client.next_batch = next_batch_token.read()
@@ -44,8 +43,6 @@ class Orderbot:
 
         self.client.add_event_callback(self.message_cb, RoomMessageText)
         while True:
-            # todo: check out sync next_batch tokens to only get new messages
-            #   https://matrix.org/docs/guides/usage-of-matrix-nio#use-of-sync-next_batch-tokens
             sync_response = await self.client.sync(60000)
             with open("next_batch", "w") as next_batch_token:
                 next_batch_token.write(sync_response.next_batch)
@@ -66,7 +63,8 @@ class Orderbot:
         if not inp:
             return 
         order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
-        print(datetime.datetime.now(), message)
+        #logging
+        print(datetime.datetime.now(), event.body, message)
         self.msg.append(message)
         self.order = order
 
