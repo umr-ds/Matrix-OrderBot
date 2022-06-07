@@ -2,7 +2,7 @@ version: '3.9'
 services:
   postgres:
     image: postgres:14.3
-    restart: always
+    restart: unless-stopped
     user: postgres
     env_file:
       database.env
@@ -25,7 +25,7 @@ services:
 
   orderbot:
     build: ./orderbotapp/
-    restart: always
+    restart: unless-stopped
     env_file:
       matrix.env
     depends_on:
