@@ -9,9 +9,8 @@ cmd = [
     "remove",  # add all pos from given user
     "tip",  # add tip
     "start",  # start new order
-    "abort",  # abort order
-    "end",  # end order and distribute cut
-    "help",
+    "cancel",  # cancel order
+    "end"  # end order and distribute cut
 ]
 
 
@@ -19,12 +18,15 @@ def save_order_in_db(order, conn, cur):
     # register all user in db, if not already in there.
     cur.execute("SELECT name, username from participant")
     all_registered_users = [item for tup in cur.fetchall() for item in tup]
+
+    # add order into db
     cur.execute("SELECT nextval(pg_get_serial_sequence('orders', 'order_id'))")
     cut_id = cur.fetchone()[0]
     cur.execute("INSERT INTO orders(order_id, total, price, tip, name, timestamp) values (%s, %s, %s, %s, %s, now())",
                 (cut_id, order.price + order.tip, order.price, order.tip, order.name))
     conn.commit()
 
+    # adding all users to participant, cuts
     for user in order.order:
         if user not in all_registered_users:
             handle = re.match(r"@(\S+):\S+\.\S+", user)
@@ -40,6 +42,8 @@ def save_order_in_db(order, conn, cur):
         cur.execute("INSERT INTO cuts(order_id, id, cut, timestamp) VALUES (%s, %s, %s, now())",
                     (cut_id, user_id, sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys())))
         conn.commit()
+
+        # update owned ect.
         cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
                     (sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys()), user_id))
         conn.commit()
@@ -54,7 +58,7 @@ def parse_input(inp, connection, cursor, order, sender):
         else:
             name = namespace["name"]
         if order_to_return is None:
-            order_to_return, msg = start({"name": None})
+            order_to_return, msg = start({"name": "an unnamed order"})
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
         order_to_return.add_pos(user=name, item=meal_name, amount=namespace["price"])
@@ -66,29 +70,29 @@ def parse_input(inp, connection, cursor, order, sender):
     def start(namespace):
         if order is None:
             if namespace["name"] is None or namespace["name"] == []:
-                return Order(), "Started new Order"
+                return Order(), "Started new collective order"
             else:
-                return Order(" ".join(namespace["name"])), "Started new Order with Name: " + " ".join(
+                return Order(" ".join(namespace["name"])), "Started new collective order with Name: " + " ".join(
                     namespace["name"])
         else:
-            return order, "Finish current order first"
+            return order, "finish current collective order first"
 
     def cancel(*_):
-        return None, "Cancelled current order"
+        return None, "Cancelled current collective order"
 
     def tip(namespace):
         if order is None:
-            return None, "start an Order first!"
+            return None, "start an order first!"
         ttip = namespace["tip"]
         if ttip > 0:
             order.add_tip(ttip)
-            return order, f"Added tip {ttip}"
+            return order, f"Added tip: {ttip}"
         else:
             return order, f"negative tip"
 
     def remove(namespace):
         if order is None:
-            return None, "start an Order first"
+            return None, "start an order first!"
         remove_all = namespace["all"]
         order_to_remove = namespace["order"]
         if namespace["name"] is None:
@@ -101,11 +105,11 @@ def parse_input(inp, connection, cursor, order, sender):
             return order, f"Removed user {name} from order"
         else:
             order.remove(name, order_to_remove)
-            return order, f"Removed order {order} for {name} from order"
+            return order, f"Removed order {namespace['order']} for {name} from order"
 
     def pay(namespace):
         if order is None:
-            return None, "Start an order first"
+            return None, "start an order first!"
         if namespace["name"] is None:
             name = sender
         else:
@@ -113,49 +117,53 @@ def parse_input(inp, connection, cursor, order, sender):
         if namespace["amount"] is None or namespace["amount"] >= order.price + order.tip:
             order.pay(name)
             save_order_in_db(order, connection, cursor)
-            return None, "Order paid\n" + str(order)
-        else:
+            return None, "order paid\n" + str(order)
+        elif namespace["amount"] > 0:
             order.pay(name, namespace["amount"])
-            return order, f"{namespace['amount']} of order {order.tip + order.price} paid. (Debug, show remaining.)"
+            return order, f"{namespace['amount']} of order {order.tip + order.price} paid."
+        else:
+            return order, "amount has to be positive"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
 
-    add_parser = subparser.add_parser(cmd[1], help="adds order")
+    start_parser = subparser.add_parser(cmd[4], help="starts a new collective order")
+    start_parser.set_defaults(func=start)
+    start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=None, help="name of collective order")
+
+    add_parser = subparser.add_parser(cmd[1], help="adds new order")
     add_parser.set_defaults(func=add)
-    add_parser.add_argument("--name", "-n", type=str, help="orderer, if different from sender")
+    add_parser.add_argument("--name", "-n", type=str, help="orderer, if different from messenger")
     add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"],
                             help="name of order")
     add_parser.add_argument("price", type=float, help="price of order")
 
-    start_parser = subparser.add_parser(cmd[4], help="starts a new order")
-    start_parser.set_defaults(func=start)
-    start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=None, help="name of order")
-
-    abort_parser = subparser.add_parser(cmd[5], help="cancels current order")
-    abort_parser.set_defaults(func=cancel)
-
-    user_parser = subparser.add_parser(cmd[0], help=argparse.SUPPRESS)
-    user_parser.set_defaults(func=user)
-    user_parser.add_argument("--name", "-n", type=str)
-
-    tip_parser = subparser.add_parser(cmd[3], help="added tip to order")
+    tip_parser = subparser.add_parser(cmd[3], help="adds a tip")
     tip_parser.set_defaults(func=tip)
     tip_parser.add_argument("tip", type=float, help="tip amount")
 
-    remove_parser = subparser.add_parser(cmd[2], help="remove pos from order")
+    remove_parser = subparser.add_parser(cmd[2], help="remove order from collective order")
     remove_parser.set_defaults(func=remove)
-    remove_parser.add_argument("--name", "-n", type=str, help="orderer, if different from sender")
+    remove_parser.add_argument("--name", "-n", type=str, help="orderer, if different from messenger")
     remove_parser.add_argument("--all", "-a", action='store_true',
-                               help="if this flag is set, all orders from current orderer are removed")
+                               help="flag indicates, that all orders from orderer are removed")
     remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
                                help="name of order, otherwise all are removed (see -a flag)")
 
-    end_parser = subparser.add_parser(cmd[6], help="finish order")
+    end_parser = subparser.add_parser(cmd[6], help="finish collective order")
     end_parser.set_defaults(func=pay)
-    end_parser.add_argument("--name", "-n", type=str, help="payer, if different from sender")
+    end_parser.add_argument("--name", "-n", type=str, help="payer, if different from messenger")
     end_parser.add_argument("--amount", "-a", type=float,
                             help="amount paid, if not specified, everything is paid, and the order is finished")
+
+    cancel_parser = subparser.add_parser(cmd[5], help="cancels current collective order")
+    cancel_parser.set_defaults(func=cancel)
+
+    """
+    user_parser = subparser.add_parser(cmd[0], help=argparse.SUPPRESS)
+    user_parser.set_defaults(func=user)
+    user_parser.add_argument("--name", "-n", type=str)
+    """
 
     try:
         args = order_parser.parse_args(inp)
