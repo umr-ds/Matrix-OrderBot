@@ -22,8 +22,7 @@ def to_currency_decimal(f):
 
 def split_tip(tip, number_of_shares):
     l = [int(tip * 100) // number_of_shares] * number_of_shares
-    too_much = tip * 100 - sum(l)
-    print(too_much)
+    too_much = int(tip * 100 - sum(l))
     if too_much > 0:
         for i in range(too_much):
             l[i] = l[i] + 1
