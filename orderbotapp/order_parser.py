@@ -1,5 +1,6 @@
 import argparse
 import re
+from decimal import Decimal, ROUND_HALF_DOWN
 
 from order import Order
 
@@ -12,6 +13,10 @@ cmd = [
     "cancel",  # cancel order
     "end"  # end order and distribute cut
 ]
+
+
+def to_currency_decimal(f):
+    return Decimal(f).quantize(Decimal('0.01'), rounding=ROUND_HALF_DOWN)
 
 
 def save_order_in_db(order, conn, cur):
@@ -39,11 +44,13 @@ def save_order_in_db(order, conn, cur):
 
         cur.execute("SELECT id from participant where username = %s or name = %s", (user, user))
         user_id = cur.fetchone()[0]
+        # todo: handle tip after division! order.tip / len(order.order.keys())
         cur.execute("INSERT INTO cuts(order_id, id, cut, timestamp) VALUES (%s, %s, %s, now())",
                     (cut_id, user_id, sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys())))
         conn.commit()
 
         # update owned ect.
+        # todo: handle tip after division! order.tip / len(order.order.keys())
         cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
                     (sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys()), user_id))
         conn.commit()
@@ -53,6 +60,7 @@ def parse_input(inp, connection, cursor, order, sender):
     def add(namespace):
         order_to_return = order
         msg = ""
+        price = to_currency_decimal(namespace['price'])
         if namespace["name"] is None:
             name = sender
         else:
@@ -61,8 +69,8 @@ def parse_input(inp, connection, cursor, order, sender):
             order_to_return, msg = start({"name": "an unnamed order"})
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
-        order_to_return.add_pos(user=name, item=meal_name, amount=namespace["price"])
-        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {namespace['price']}"
+        order_to_return.add_pos(user=name, item=meal_name, amount=price)
+        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {price}"
 
     def user(*_):
         return order, "I am just a stub"
@@ -83,7 +91,7 @@ def parse_input(inp, connection, cursor, order, sender):
     def tip(namespace):
         if order is None:
             return None, "start an order first!"
-        ttip = namespace["tip"]
+        ttip = to_currency_decimal(namespace['tip'])
         if ttip > 0:
             order.add_tip(ttip)
             return order, f"Added tip: {ttip}"
@@ -119,8 +127,9 @@ def parse_input(inp, connection, cursor, order, sender):
             save_order_in_db(order, connection, cursor)
             return None, "order paid\n" + str(order)
         elif namespace["amount"] > 0:
-            order.pay(name, namespace["amount"])
-            return order, f"{namespace['amount']} of order {order.tip + order.price} paid."
+            amount = to_currency_decimal(namespace['amount'])
+            order.pay(name, amount)
+            return order, f"{amount} of order {order.tip + order.price} paid."
         else:
             return order, "amount has to be positive"
 
