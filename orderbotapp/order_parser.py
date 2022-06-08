@@ -144,7 +144,7 @@ def parse_input(inp, connection, cursor, order, sender):
         elif namespace["amount"] > 0:
             amount = to_currency_decimal(namespace['amount'])
             order.pay(name, amount)
-            return order, f"{amount} of order {order.tip + order.price} paid."
+            return order, f"{amount} of order {order.name} paid."
         else:
             return order, "amount has to be positive"
 
