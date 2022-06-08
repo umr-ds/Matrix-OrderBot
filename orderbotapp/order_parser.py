@@ -1,5 +1,7 @@
 import argparse
+import random
 import re
+from decimal import Decimal, ROUND_HALF_DOWN
 
 from order import Order
 
@@ -14,6 +16,23 @@ cmd = [
 ]
 
 
+def to_currency_decimal(f):
+    return Decimal(f).quantize(Decimal('0.01'), rounding=ROUND_HALF_DOWN)
+
+
+def split_tip(tip, number_of_shares):
+    l = [int(tip * 100) // number_of_shares] * number_of_shares
+    too_much = int(tip * 100 - sum(l))
+    if too_much > 0:
+        for i in range(too_much):
+            l[i] = l[i] + 1
+    if too_much < 0:
+        for i in range(-too_much):
+            l[i] = l[i] - 1
+    random.shuffle(l)
+    return [to_currency_decimal(x / 100) for x in l]
+
+
 def save_order_in_db(order, conn, cur):
     # register all user in db, if not already in there.
     cur.execute("SELECT name, username from participant")
@@ -26,8 +45,9 @@ def save_order_in_db(order, conn, cur):
                 (cut_id, order.price + order.tip, order.price, order.tip, order.name))
     conn.commit()
 
+    tip_shares = split_tip(order.tip, len(order.order))
     # adding all users to participant, cuts
-    for user in order.order:
+    for index, user in enumerate(order.order):
         if user not in all_registered_users:
             handle = re.match(r"@(\S+):\S+\.\S+", user)
             if handle:
@@ -39,13 +59,15 @@ def save_order_in_db(order, conn, cur):
 
         cur.execute("SELECT id from participant where username = %s or name = %s", (user, user))
         user_id = cur.fetchone()[0]
+
+        user_tip = tip_shares[index]
         cur.execute("INSERT INTO cuts(order_id, id, cut, timestamp) VALUES (%s, %s, %s, now())",
-                    (cut_id, user_id, sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys())))
+                    (cut_id, user_id, sum(item[1] for item in order.order[user]) + user_tip))
         conn.commit()
 
         # update owned ect.
         cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
-                    (sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys()), user_id))
+                    (sum(item[1] for item in order.order[user]) + user_tip, user_id))
         conn.commit()
 
 
@@ -53,6 +75,7 @@ def parse_input(inp, connection, cursor, order, sender):
     def add(namespace):
         order_to_return = order
         msg = ""
+        price = to_currency_decimal(namespace['price'])
         if namespace["name"] is None:
             name = sender
         else:
@@ -61,8 +84,8 @@ def parse_input(inp, connection, cursor, order, sender):
             order_to_return, msg = start({"name": "an unnamed order"})
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
-        order_to_return.add_pos(user=name, item=meal_name, amount=namespace["price"])
-        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {namespace['price']}"
+        order_to_return.add_pos(user=name, item=meal_name, amount=price)
+        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {price}"
 
     def user(*_):
         return order, "I am just a stub"
@@ -83,7 +106,7 @@ def parse_input(inp, connection, cursor, order, sender):
     def tip(namespace):
         if order is None:
             return None, "start an order first!"
-        ttip = namespace["tip"]
+        ttip = to_currency_decimal(namespace['tip'])
         if ttip > 0:
             order.add_tip(ttip)
             return order, f"Added tip: {ttip}"
@@ -119,8 +142,9 @@ def parse_input(inp, connection, cursor, order, sender):
             save_order_in_db(order, connection, cursor)
             return None, "order paid\n" + str(order)
         elif namespace["amount"] > 0:
-            order.pay(name, namespace["amount"])
-            return order, f"{namespace['amount']} of order {order.tip + order.price} paid."
+            amount = to_currency_decimal(namespace['amount'])
+            order.pay(name, amount)
+            return order, f"{amount} of order {order.tip + order.price} paid."
         else:
             return order, "amount has to be positive"
 

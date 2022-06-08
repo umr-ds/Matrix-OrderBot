@@ -12,7 +12,8 @@ CREATE TABLE orders
     total     NUMERIC CHECK (total >= 0),
     price     NUMERIC CHECK (price >= 0),
     tip       NUMERIC CHECK (tip >= 0),
-    timestamp DATE
+    timestamp DATE,
+    CHECK (total = price + tip)
 );
 CREATE TABLE cuts
 (
