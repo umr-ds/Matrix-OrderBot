@@ -1,4 +1,5 @@
 import argparse
+import random
 import re
 from decimal import Decimal, ROUND_HALF_DOWN
 
@@ -19,6 +20,20 @@ def to_currency_decimal(f):
     return Decimal(f).quantize(Decimal('0.01'), rounding=ROUND_HALF_DOWN)
 
 
+def split_tip(tip, number_of_shares):
+    l = [int(tip * 100) // number_of_shares] * number_of_shares
+    too_much = tip * 100 - sum(l)
+    print(too_much)
+    if too_much > 0:
+        for i in range(too_much):
+            l[i] = l[i] + 1
+    if too_much < 0:
+        for i in range(-too_much):
+            l[i] = l[i] - 1
+    random.shuffle(l)
+    return [to_currency_decimal(x / 100) for x in l]
+
+
 def save_order_in_db(order, conn, cur):
     # register all user in db, if not already in there.
     cur.execute("SELECT name, username from participant")
@@ -31,8 +46,9 @@ def save_order_in_db(order, conn, cur):
                 (cut_id, order.price + order.tip, order.price, order.tip, order.name))
     conn.commit()
 
+    tip_shares = split_tip(order.tip, len(order.order))
     # adding all users to participant, cuts
-    for user in order.order:
+    for index, user in enumerate(order.order):
         if user not in all_registered_users:
             handle = re.match(r"@(\S+):\S+\.\S+", user)
             if handle:
@@ -44,15 +60,15 @@ def save_order_in_db(order, conn, cur):
 
         cur.execute("SELECT id from participant where username = %s or name = %s", (user, user))
         user_id = cur.fetchone()[0]
-        # todo: handle tip after division! order.tip / len(order.order.keys())
+
+        user_tip = tip_shares[index]
         cur.execute("INSERT INTO cuts(order_id, id, cut, timestamp) VALUES (%s, %s, %s, now())",
-                    (cut_id, user_id, sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys())))
+                    (cut_id, user_id, sum(item[1] for item in order.order[user]) + user_tip))
         conn.commit()
 
         # update owned ect.
-        # todo: handle tip after division! order.tip / len(order.order.keys())
         cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
-                    (sum(item[1] for item in order.order[user]) + order.tip / len(order.order.keys()), user_id))
+                    (sum(item[1] for item in order.order[user]) + user_tip, user_id))
         conn.commit()
 
 
