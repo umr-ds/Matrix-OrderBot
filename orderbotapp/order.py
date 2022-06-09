@@ -8,11 +8,16 @@ class Order:
         self.paid = True
 
     def __str__(self):
+        return self.print_order()
+
+    def print_order(self, user=None):
+
         s = (
             f"{self.name}",
             "\n".join([
                 f"{person}:\t {', '.join([' : '.join([item[0], str(item[1])]) for item in betrag if item[0] != 'paid amount'])}"
-                for person, betrag in self.order.items() if not (len(betrag) == 1 and betrag[0][0] == 'paid amount')]),
+                for person, betrag in self.order.items() if
+                not (len(betrag) == 1 and betrag[0][0] == 'paid amount') and user is None or person == user]),
             f"Tip:\t {str(self.tip)}",
             f"Total:\t {str(self.price)}",
             f"Sum:\t {str(self.tip + self.price)}",

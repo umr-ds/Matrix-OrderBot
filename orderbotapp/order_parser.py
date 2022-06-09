@@ -12,15 +12,29 @@ cmd = [
     "tip",  # add tip
     "start",  # start new order
     "cancel",  # cancel order
-    "end"  # end order and distribute cut
+    "end",  # end order and distribute cut
+    "print",
+    "payout"
 ]
 
 
 def to_currency_decimal(f):
+    """
+     Converts a float to a Decimal, rounding it to two decimal places
+
+     :param f: The float to be converted to a Decimal
+     :return: A Decimal object
+     """
     return Decimal(f).quantize(Decimal('0.01'), rounding=ROUND_HALF_DOWN)
 
 
 def split_tip(tip, number_of_shares):
+    """
+    Precisely splits the tip.
+    :param tip: the tip
+    :param number_of_shares: The number of shares
+    :return: A list of Decimals, summing to the tip.
+    """
     l = [int(tip * 100) // number_of_shares] * number_of_shares
     too_much = int(tip * 100 - sum(l))
     if too_much > 0:
@@ -34,6 +48,13 @@ def split_tip(tip, number_of_shares):
 
 
 def save_order_in_db(order, conn, cur):
+    """
+    Saves an order in the database
+
+    :param order: order, that should be saves
+    :param conn: the connection to the database
+    :param cur: cursor object of the database
+    """
     # register all user in db, if not already in there.
     cur.execute("SELECT name, username from participant")
     all_registered_users = [item for tup in cur.fetchall() for item in tup]
@@ -65,10 +86,17 @@ def save_order_in_db(order, conn, cur):
                     (cut_id, user_id, sum(item[1] for item in order.order[user]) + user_tip))
         conn.commit()
 
-        # update owned ect.
+        # update user_total
         cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
                     (sum(item[1] for item in order.order[user]) + user_tip, user_id))
         conn.commit()
+
+
+def no_active_order():
+    """
+    simple method to streamline reply-message
+    """
+    return None, "start an order first!"
 
 
 def parse_input(inp, connection, cursor, order, sender):
@@ -103,9 +131,20 @@ def parse_input(inp, connection, cursor, order, sender):
     def cancel(*_):
         return None, "Cancelled current collective order"
 
+    def print_order(namespace):
+        if order is None:
+            return no_active_order()
+        if namespace["self"]:
+            if sender in order.order:
+                return order, order.print_order(sender)
+            else:
+                return order, f"{sender} not in current order"
+        else:
+            return order, order
+
     def tip(namespace):
         if order is None:
-            return None, "start an order first!"
+            return no_active_order()
         ttip = to_currency_decimal(namespace['tip'])
         if ttip > 0:
             order.add_tip(ttip)
@@ -115,7 +154,7 @@ def parse_input(inp, connection, cursor, order, sender):
 
     def remove(namespace):
         if order is None:
-            return None, "start an order first!"
+            return no_active_order()
         remove_all = namespace["all"]
         order_to_remove = namespace["order"]
         if namespace["name"] is None:
@@ -132,7 +171,7 @@ def parse_input(inp, connection, cursor, order, sender):
 
     def pay(namespace):
         if order is None:
-            return None, "start an order first!"
+            return no_active_order()
         if namespace["name"] is None:
             name = sender
         else:
@@ -147,6 +186,63 @@ def parse_input(inp, connection, cursor, order, sender):
             return order, f"{amount} of order {order.name} paid."
         else:
             return order, "amount has to be positive"
+
+    def payout(namespace):
+        cursor.execute("SELECT * FROM participant WHERE name = %s", (sender,))
+        cur_user = cursor.fetchone()
+        debt = cur_user[3]
+        if debt != 0:
+            if debt > 0:
+                cursor.execute("SELECT * FROM participant WHERE user_total < 0 ORDER BY user_total ASC")
+                all_user = cursor.fetchall()
+                all_user_subset = []
+                subset_debt = 0
+                while subset_debt < debt and all_user:
+                    cur = all_user.pop()
+                    all_user_subset.append(cur)
+                    subset_debt = subset_debt - cur[3]
+                diffs = []
+                for user in all_user_subset:
+                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
+                                   (min(user[3] + debt, 0), user[0]))
+                    connection.commit()
+                    diffs.append((user[2], user[3] - min(user[3] + debt, 0)))
+                    debt = max(debt + user[3], 0)
+                if debt > 0:
+                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
+                                   (debt, all_user_subset[0][0]))
+                    tup = diffs[0]
+                    diffs[0] = (tup[0], tup[1] - debt)
+                cursor.execute("UPDATE participant SET user_total = 0 where id = %s", (cur_user[0],))
+                connection.commit()
+                return order, f"{sender}, pay:\n" + "\n".join(f"{item[0]} : {- item[1]}" for item in diffs)
+
+            elif debt < 0:
+                cursor.execute("SELECT * FROM participant WHERE user_total > 0 ORDER BY user_total DESC")
+                all_user = cursor.fetchall()
+                all_user_subset = []
+                subset_debt = 0
+                while subset_debt > debt and all_user:
+                    cur = all_user.pop()
+                    all_user_subset.append(cur)
+                    subset_debt = subset_debt - cur[3]
+                diffs = []
+                for user in all_user_subset:
+                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
+                                   (max(user[3] + debt, 0), user[0]))
+                    connection.commit()
+                    diffs.append((user[2], user[3] - max(user[3] + debt, 0)))
+                    debt = min(debt + user[3], 0)
+                if debt < 0:
+                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
+                                   (debt, all_user_subset[0][0]))
+                    tup = diffs[0]
+                    diffs[0] = (tup[0], tup[1] - debt)
+                cursor.execute("UPDATE participant SET user_total = 0 where id = %s", (cur_user[0],))
+                connection.commit()
+                return order, f"{sender}, receive from:\n" + "\n".join(f"{item[0]} : {item[1]}" for item in diffs)
+        else:
+            return order, "Nothing to payout"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -188,6 +284,13 @@ def parse_input(inp, connection, cursor, order, sender):
     user_parser.set_defaults(func=user)
     user_parser.add_argument("--name", "-n", type=str)
     """
+
+    print_parser = subparser.add_parser(cmd[7], help="displays current collective order")
+    print_parser.set_defaults(func=print_order)
+    print_parser.add_argument("--self", "-s", action='store_true', help="displays only the orders of the messager")
+
+    payout_parser = subparser.add_parser(cmd[8], help="let user payout there remaining debt/due balance")
+    payout_parser.set_defaults(func=payout)
 
     try:
         args = order_parser.parse_args(inp)
