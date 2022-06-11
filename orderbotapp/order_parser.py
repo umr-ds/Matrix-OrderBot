@@ -45,7 +45,7 @@ def split_tip(tip, number_of_shares):
         for i in range(-too_much):
             l[i] = l[i] - 1
     random.shuffle(l)
-    return [euro_to_cent(x) for x in l]
+    return [x for x in l]
 
 
 def save_order_in_db(order, session):
