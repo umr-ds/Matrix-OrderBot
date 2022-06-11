@@ -3,7 +3,10 @@ import random
 import re
 from decimal import Decimal, ROUND_HALF_DOWN
 
+from sqlalchemy import or_, update
+
 from order import Order
+from orderbotapp.db_classes import Participant, Cuts
 
 cmd = [
     "user",  # add user
@@ -16,13 +19,17 @@ cmd = [
 ]
 
 
-def to_currency_decimal(f):
-    return Decimal(f).quantize(Decimal('0.01'), rounding=ROUND_HALF_DOWN)
+def cent_to_euro(cents):
+    return "{:.2f}".format(cents / 100)
+
+
+def euro_to_cent(f):
+    return int(Decimal(f * 100).quantize(Decimal('1'), rounding=ROUND_HALF_DOWN))
 
 
 def split_tip(tip, number_of_shares):
-    l = [int(tip * 100) // number_of_shares] * number_of_shares
-    too_much = int(tip * 100 - sum(l))
+    l = [tip // number_of_shares] * number_of_shares
+    too_much = tip - sum(l)
     if too_much > 0:
         for i in range(too_much):
             l[i] = l[i] + 1
@@ -30,21 +37,17 @@ def split_tip(tip, number_of_shares):
         for i in range(-too_much):
             l[i] = l[i] - 1
     random.shuffle(l)
-    return [to_currency_decimal(x / 100) for x in l]
+    return [euro_to_cent(x) for x in l]
 
 
-def save_order_in_db(order, conn, cur):
+def save_order_in_db(order, session):
     # register all user in db, if not already in there.
-    cur.execute("SELECT name, username from participant")
-    all_registered_users = [item for tup in cur.fetchall() for item in tup]
-
+    all_registered_users = [name for nametuple in session.query(Participant.name, Participant.matrix_address).all() for
+                            name in nametuple]
     # add order into db
-    cur.execute("SELECT nextval(pg_get_serial_sequence('orders', 'order_id'))")
-    cut_id = cur.fetchone()[0]
-    cur.execute("INSERT INTO orders(order_id, total, price, tip, name, timestamp) values (%s, %s, %s, %s, %s, now())",
-                (cut_id, order.price + order.tip, order.price, order.tip, order.name))
-    conn.commit()
-
+    db_order = order.to_dborder()
+    session.add(db_order)
+    session.commit()
     tip_shares = split_tip(order.tip, len(order.order))
     # adding all users to participant, cuts
     for index, user in enumerate(order.order):
@@ -52,30 +55,31 @@ def save_order_in_db(order, conn, cur):
             handle = re.match(r"@(\S+):\S+\.\S+", user)
             if handle:
                 name = handle.group(1)
-                cur.execute("INSERT INTO participant(name,username) VALUES (%s, %s)", (name, user))
+                session.add(Participant(name=name, matrix_address=user))
             else:
-                cur.execute("INSERT INTO participant(name) VALUES (%s)", (user,))
-            conn.commit()
+                session.add(Participant(name=user))
+            session.commit()
 
-        cur.execute("SELECT id from participant where username = %s or name = %s", (user, user))
-        user_id = cur.fetchone()[0]
-
+        user_id = session.query(Participant.pid) \
+            .where(or_(Participant.name == user, Participant.matrix_address == user)) \
+            .first()[0]
         user_tip = tip_shares[index]
-        cur.execute("INSERT INTO cuts(order_id, id, cut, timestamp) VALUES (%s, %s, %s, now())",
-                    (cut_id, user_id, sum(item[1] for item in order.order[user]) + user_tip))
-        conn.commit()
+        session.add(
+            Cuts(pid=user_id, oid=db_order.oid, cut=sum(item[1] for item in order.order[user]) + user_tip))
+        session.commit()
 
         # update owned ect.
-        cur.execute("UPDATE participant SET user_total = user_total + %s where id = %s",
-                    (sum(item[1] for item in order.order[user]) + user_tip, user_id))
-        conn.commit()
+        session.execute(
+            update(Participant).where(Participant.pid == user_id)
+                .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
+        )
 
 
-def parse_input(inp, connection, cursor, order, sender):
+def parse_input(inp, session, order, sender):
     def add(namespace):
         order_to_return = order
         msg = ""
-        price = to_currency_decimal(namespace['price'])
+        price = euro_to_cent(namespace['price'])
         if namespace["name"] is None:
             name = sender
         else:
@@ -85,7 +89,7 @@ def parse_input(inp, connection, cursor, order, sender):
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
         order_to_return.add_pos(user=name, item=meal_name, amount=price)
-        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {price}"
+        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {cent_to_euro(price)}"
 
     def user(*_):
         return order, "I am just a stub"
@@ -106,10 +110,10 @@ def parse_input(inp, connection, cursor, order, sender):
     def tip(namespace):
         if order is None:
             return None, "start an order first!"
-        ttip = to_currency_decimal(namespace['tip'])
+        ttip = euro_to_cent(namespace['tip'])
         if ttip > 0:
             order.add_tip(ttip)
-            return order, f"Added tip: {ttip}"
+            return order, f"Added tip: {cent_to_euro(ttip)}"
         else:
             return order, f"negative tip"
 
@@ -124,7 +128,7 @@ def parse_input(inp, connection, cursor, order, sender):
             name = namespace["name"]
 
         if remove_all or order_to_remove is None:
-            order.remove(name, connection, cursor)
+            order.remove(name)
             return order, f"Removed user {name} from order"
         else:
             order.remove(name, order_to_remove)
@@ -137,14 +141,14 @@ def parse_input(inp, connection, cursor, order, sender):
             name = sender
         else:
             name = namespace["name"]
-        if namespace["amount"] is None or namespace["amount"] >= order.price + order.tip:
+        if namespace["amount"] is None or namespace["amount"] * 100 >= order.price + order.tip:
             order.pay(name)
-            save_order_in_db(order, connection, cursor)
+            save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
         elif namespace["amount"] > 0:
-            amount = to_currency_decimal(namespace['amount'])
+            amount = euro_to_cent(namespace['amount'])
             order.pay(name, amount)
-            return order, f"{amount} of order {order.name} paid."
+            return order, f"{cent_to_euro(amount)} of order {order.name} paid."
         else:
             return order, "amount has to be positive"
 
