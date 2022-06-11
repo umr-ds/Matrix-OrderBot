@@ -1,5 +1,5 @@
 import asyncio
-import datetime
+import logging as log
 import os
 from os.path import exists
 
@@ -9,6 +9,8 @@ from sqlalchemy.orm import sessionmaker
 
 import order_parser
 from orderbotapp.db_classes import setup_db
+
+log.basicConfig(format="%(levelname)s|%(asctime)s:%(message)s", level=log.DEBUG)
 
 
 class Orderbot:
@@ -31,7 +33,7 @@ class Orderbot:
             Session = sessionmaker(bind=db)
             session = Session()
             self.client = AsyncClient(os.environ['MSERVER'], "@" + self.username)
-            print(datetime.datetime.now(), await self.client.login(os.environ['MPASSWORD']))
+            log.info(await self.client.login(os.environ['MPASSWORD']))
             if exists("next_batch"):
                 with open("next_batch", "r") as next_batch_token:
                     self.client.next_batch = next_batch_token.read()
@@ -40,7 +42,7 @@ class Orderbot:
                 with open("next_batch", "w") as next_batch_token:
                     next_batch_token.write(sync_response.next_batch)
         except Exception as error:
-            print(error)
+            log.error(error)
 
         self.client.add_event_callback(self.message_cb, RoomMessageText)
         while True:
@@ -62,10 +64,9 @@ class Orderbot:
             return
         inp = event.body.split()[1:]
         if not inp:
-            return 
+            return
         order, message = order_parser.parse_input(inp, self.conn, self.cursor, self.order, event.sender)
-        #logging
-        print(datetime.datetime.now(), event.body, message)
+        log.info(f"Body:{event.body}, Msg:{message}")
         self.msg.append(message)
         self.order = order
 
