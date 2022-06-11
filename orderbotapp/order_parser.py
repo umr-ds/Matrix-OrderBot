@@ -49,13 +49,6 @@ def split_tip(tip, number_of_shares):
 
 
 def save_order_in_db(order, session):
-    """
-    Saves an order in the database
-
-    :param order: order, that should be saves
-    :param conn: the connection to the database
-    :param cur: cursor object of the database
-    """
     # register all user in db, if not already in there.
     all_registered_users = [name for nametuple in session.query(Participant.name, Participant.matrix_address).all() for
                             name in nametuple]
@@ -186,58 +179,68 @@ def parse_input(inp, session, order, sender):
             return order, "amount has to be positive"
 
     def payout(namespace):
-        cursor.execute("SELECT * FROM participant WHERE name = %s", (sender,))
-        cur_user = cursor.fetchone()
-        debt = cur_user[3]
+
+        cur_user = session.query(Participant).where(Participant.matrix_address == sender).first()
+        debt = cur_user.user_total
         if debt != 0:
             if debt > 0:
-                cursor.execute("SELECT * FROM participant WHERE user_total < 0 ORDER BY user_total ASC")
-                all_user = cursor.fetchall()
+                all_user = session.query(Participant).where(Participant.user_total < 0).order_by(
+                    Participant.user_total.asc()).all()
                 all_user_subset = []
                 subset_debt = 0
                 while subset_debt < debt and all_user:
                     cur = all_user.pop()
                     all_user_subset.append(cur)
-                    subset_debt = subset_debt - cur[3]
+                    subset_debt = subset_debt - cur.user_total
                 diffs = []
                 for user in all_user_subset:
-                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
-                                   (min(user[3] + debt, 0), user[0]))
-                    connection.commit()
-                    diffs.append((user[2], user[3] - min(user[3] + debt, 0)))
-                    debt = max(debt + user[3], 0)
+                    session.execute(
+                        update(Participant).where(Participant.pid == user.pid)
+                            .values(user_total=min(user.user_total + debt, 0))
+                    )
+                    diffs.append((user.pid, user.user_total - min(user.user_total + debt, 0)))
+                    debt = max(debt + user.user_total, 0)
                 if debt > 0:
-                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
-                                   (debt, all_user_subset[0][0]))
+                    session.execute(
+                        update(Participant).where(Participant.pid == all_user_subset[0].pid)
+                            .values(user_total=debt)
+                    )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
-                cursor.execute("UPDATE participant SET user_total = 0 where id = %s", (cur_user[0],))
-                connection.commit()
+                session.execute(
+                    update(Participant).where(Participant.pid == cur_user.pid)
+                        .values(user_total=0)
+                )
                 return order, f"{sender}, pay:\n" + "\n".join(f"{item[0]} : {- item[1]}" for item in diffs)
 
             elif debt < 0:
-                cursor.execute("SELECT * FROM participant WHERE user_total > 0 ORDER BY user_total DESC")
-                all_user = cursor.fetchall()
+                all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
+                    Participant.user_total.desc()).all()
                 all_user_subset = []
                 subset_debt = 0
                 while subset_debt > debt and all_user:
                     cur = all_user.pop()
                     all_user_subset.append(cur)
-                    subset_debt = subset_debt - cur[3]
+                    subset_debt = subset_debt - cur.user_total
                 diffs = []
                 for user in all_user_subset:
-                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
-                                   (max(user[3] + debt, 0), user[0]))
-                    connection.commit()
-                    diffs.append((user[2], user[3] - max(user[3] + debt, 0)))
-                    debt = min(debt + user[3], 0)
+                    session.execute(
+                        update(Participant).where(Participant.pid == user.pid)
+                            .values(user_total=max(user.user_total + debt, 0))
+                    )
+                    diffs.append((user.pid, user.user_total - max(user.user_total + debt, 0)))
+                    debt = min(debt + user.user_total, 0)
                 if debt < 0:
-                    cursor.execute("UPDATE participant SET user_total = %s where id = %s",
-                                   (debt, all_user_subset[0][0]))
+                    session.execute(
+                        update(Participant).where(Participant.pid == all_user_subset[0].pid)
+                            .values(user_total=debt)
+                    )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
-                cursor.execute("UPDATE participant SET user_total = 0 where id = %s", (cur_user[0],))
-                connection.commit()
+                session.execute(
+                    update(Participant).where(Participant.pid == cur_user.pid)
+                        .values(user_total=0)
+                )
                 return order, f"{sender}, receive from:\n" + "\n".join(f"{item[0]} : {item[1]}" for item in diffs)
         else:
             return order, "Nothing to payout"
