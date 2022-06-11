@@ -268,7 +268,7 @@ def parse_input(inp, session, order, sender):
         bal = euro_to_cent(namespace["balance"])
         cur_user.user_total = cur_user.user_total + bal
         session.commit()
-        return order, f"added {bal} to {cur_user.name}"
+        return order, f"added {cent_to_euro(bal)} to {cur_user.name}"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
