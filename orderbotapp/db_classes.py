@@ -37,7 +37,7 @@ class Cuts(Base):
 
 
 def setup_db():
-    db = create_engine("sqlite:///orderbot.db")
+    db = create_engine("sqlite:///../sql/orderbot.db")
     Participant.__table__.create(bind=db, checkfirst=True)
     DB_Order.__table__.create(bind=db, checkfirst=True)
     Cuts.__table__.create(bind=db, checkfirst=True)
