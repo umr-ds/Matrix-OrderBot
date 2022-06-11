@@ -256,16 +256,19 @@ def parse_input(inp, session, order, sender):
             return order, "Nothing to payout"
 
     def balance(namespace):
-        name = namespace["name"]
+        if namespace["name"] is None:
+            name = sender
+        else:
+            name = namespace["name"]
         handle = re.match(r"@(\S+):\S+\.\S+", name)
         if handle:
-            user = session.query(Participant).where(Participant.matrix_address == handle.group(1)).first()
+            cur_user = session.query(Participant).where(Participant.matrix_address == handle.group(1)).first()
         else:
-            user = session.query(Participant).where(Participant.name == name).first()
+            cur_user = session.query(Participant).where(Participant.name == name).first()
         bal = euro_to_cent(namespace["balance"])
-        user.user_total = user.user_total + bal
+        cur_user.user_total = cur_user.user_total + bal
         session.commit()
-        return order, f"added {bal} to {user.name}"
+        return order, f"added {bal} to {cur_user.name}"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -285,7 +288,7 @@ def parse_input(inp, session, order, sender):
     tip_parser.set_defaults(func=tip)
     tip_parser.add_argument("tip", type=float, help="tip amount")
 
-    remove_parser = subparser.add_parser(cmd[2], help="remove order from collective order")
+    remove_parser = subparser.add_parser(cmd[2], help="removes order from collective order")
     remove_parser.set_defaults(func=remove)
     remove_parser.add_argument("--name", "-n", type=str, help="orderer, if different from messenger")
     remove_parser.add_argument("--all", "-a", action='store_true',
@@ -293,7 +296,7 @@ def parse_input(inp, session, order, sender):
     remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
                                help="name of order, otherwise all are removed (see -a flag)")
 
-    end_parser = subparser.add_parser(cmd[6], help="finish collective order")
+    end_parser = subparser.add_parser(cmd[6], help="finishes collective order")
     end_parser.set_defaults(func=pay)
     end_parser.add_argument("--name", "-n", type=str, help="payer, if different from messenger")
     end_parser.add_argument("--amount", "-a", type=float,
@@ -310,14 +313,14 @@ def parse_input(inp, session, order, sender):
 
     print_parser = subparser.add_parser(cmd[7], help="displays current collective order")
     print_parser.set_defaults(func=print_order)
-    print_parser.add_argument("--self", "-s", action='store_true', help="displays only the orders of the messager")
+    print_parser.add_argument("--self", "-s", action='store_true', help="displays only the orders of the messenger")
 
-    payout_parser = subparser.add_parser(cmd[8], help="let user payout there remaining debt/due balance")
+    payout_parser = subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
     payout_parser.set_defaults(func=payout)
 
     balance_parser = subparser.add_parser(cmd[9], help="adds initial balance")
     balance_parser.set_defaults(func=balance)
-    balance_parser.add_argument("--name", "-n", type=str, help="recipient")
+    balance_parser.add_argument("--name", "-n", type=str, help="recipient, if different from messenger")
     balance_parser.add_argument("balance", type=float, help="balance")
 
     try:
