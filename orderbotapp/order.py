@@ -1,3 +1,7 @@
+import order_parser
+from orderbotapp.db_classes import DB_Order
+
+
 class Order:
 
     def __init__(self, name="Order"):
@@ -15,12 +19,11 @@ class Order:
         s = (
             f"{self.name}",
             "\n".join([
-                f"{person}:\t {', '.join([' : '.join([item[0], str(item[1])]) for item in betrag if item[0] != 'paid amount'])}"
-                for person, betrag in self.order.items() if
-                not (len(betrag) == 1 and betrag[0][0] == 'paid amount') and user is None or person == user]),
-            f"Tip:\t {str(self.tip)}",
-            f"Total:\t {str(self.price)}",
-            f"Sum:\t {str(self.tip + self.price)}",
+                f"{person}:\t {', '.join([' : '.join([item[0], order_parser.cent_to_euro(item[1])]) for item in betrag if item[0] != 'paid amount'])}"
+                for person, betrag in self.order.items() if not (len(betrag) == 1 and betrag[0][0] == 'paid amount') and user is None or person == user]),
+            f"Tip:\t {order_parser.cent_to_euro(self.tip)}",
+            f"Total:\t {order_parser.cent_to_euro(self.price)}",
+            f"Sum:\t {order_parser.cent_to_euro((self.tip + self.price))}",
             f"Paid by: {self.paid}"
         )
         return "\n".join(s)
@@ -65,3 +68,7 @@ class Order:
             self.paid = user
         else:
             self.order[user].append(("paid amount", -amount))
+
+    def to_dborder(self):
+        return DB_Order(name=self.name, total=self.price + self.tip, price=self.price,
+                        tip=self.tip)

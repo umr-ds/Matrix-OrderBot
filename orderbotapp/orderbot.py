@@ -4,9 +4,11 @@ import os
 from os.path import exists
 
 from nio import AsyncClient, RoomMessageText
-from psycopg2 import connect
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import order_parser
+from orderbotapp.db_classes import setup_db
 
 
 class Orderbot:
@@ -24,22 +26,21 @@ class Orderbot:
         self.username = os.environ["MUSERNAME"]
         self.room = os.environ["MHOMEROOM"]
         try:
-            self.conn = connect(os.environ["DBSTRING"])
-            self.cursor = self.conn.cursor()
+            setup_db()
+            db = create_engine("sqlite:///orderbot.db")
+            Session = sessionmaker(bind=db)
+            session = Session()
             self.client = AsyncClient(os.environ['MSERVER'], "@" + self.username)
             print(datetime.datetime.now(), await self.client.login(os.environ['MPASSWORD']))
             if exists("next_batch"):
                 with open("next_batch", "r") as next_batch_token:
                     self.client.next_batch = next_batch_token.read()
             else:
-                open("next_batch", "w")
-
-            # setup.setup(self.conn, self.cursor)
+                sync_response = await self.client.sync(3000)
+                with open("next_batch", "w") as next_batch_token:
+                    next_batch_token.write(sync_response.next_batch)
         except Exception as error:
             print(error)
-        # finally:
-        # self.cursor.close()
-        # self.conn.close()
 
         self.client.add_event_callback(self.message_cb, RoomMessageText)
         while True:

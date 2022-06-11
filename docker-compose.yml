@@ -1,4 +1,4 @@
-version: '3.9'
+version: '3.7'
 services:
   postgres:
     image: postgres:14.3
@@ -21,6 +21,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 
   orderbot:
@@ -29,7 +31,9 @@ services:
     env_file:
       matrix.env
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
+#        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 volumes:
   db_data:
