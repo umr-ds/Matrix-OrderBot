@@ -17,7 +17,8 @@ cmd = [
     "cancel",  # cancel order
     "end",  # end order and distribute cut
     "print",
-    "payout"
+    "payout",
+    "bal"
 ]
 
 
@@ -64,9 +65,10 @@ def save_order_in_db(order, session):
             if handle:
                 name = handle.group(1)
                 session.add(Participant(name=name, matrix_address=user))
+                session.commit()
             else:
                 session.add(Participant(name=user))
-            session.commit()
+                session.commit()
 
         user_id = session.query(Participant.pid) \
             .where(or_(Participant.name == user, Participant.matrix_address == user)) \
@@ -81,6 +83,7 @@ def save_order_in_db(order, session):
             update(Participant).where(Participant.pid == user_id)
                 .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
         )
+        session.commit()
 
 
 def no_active_order():
@@ -179,7 +182,6 @@ def parse_input(inp, session, order, sender):
             return order, "amount has to be positive"
 
     def payout(namespace):
-
         cur_user = session.query(Participant).where(Participant.matrix_address == sender).first()
         debt = cur_user.user_total
         if debt != 0:
@@ -194,12 +196,15 @@ def parse_input(inp, session, order, sender):
                     subset_debt = subset_debt - cur.user_total
                 diffs = []
                 for user in all_user_subset:
+                    user_bal = user.user_total
+                    change = min(user_bal + debt, 0)
+                    diffs.append((user.pid, user_bal - change))
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
-                            .values(user_total=min(user.user_total + debt, 0))
+                            .values(user_total=change)
                     )
-                    diffs.append((user.pid, user.user_total - min(user.user_total + debt, 0)))
-                    debt = max(debt + user.user_total, 0)
+                    debt = max(debt + user_bal, 0)
+                session.commit()
                 if debt > 0:
                     session.execute(
                         update(Participant).where(Participant.pid == all_user_subset[0].pid)
@@ -211,6 +216,7 @@ def parse_input(inp, session, order, sender):
                     update(Participant).where(Participant.pid == cur_user.pid)
                         .values(user_total=0)
                 )
+                session.commit()
                 return order, f"{sender}, pay:\n" + "\n".join(f"{item[0]} : {- item[1]}" for item in diffs)
 
             elif debt < 0:
@@ -224,12 +230,15 @@ def parse_input(inp, session, order, sender):
                     subset_debt = subset_debt - cur.user_total
                 diffs = []
                 for user in all_user_subset:
+                    user_bal = user.user_total
+                    change = max(user_bal + debt, 0)
+                    diffs.append((user.pid, user_bal - change))
+                    debt = min(debt + user_bal, 0)
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
-                            .values(user_total=max(user.user_total + debt, 0))
+                            .values(user_total=change)
                     )
-                    diffs.append((user.pid, user.user_total - max(user.user_total + debt, 0)))
-                    debt = min(debt + user.user_total, 0)
+                session.commit()
                 if debt < 0:
                     session.execute(
                         update(Participant).where(Participant.pid == all_user_subset[0].pid)
@@ -241,9 +250,22 @@ def parse_input(inp, session, order, sender):
                     update(Participant).where(Participant.pid == cur_user.pid)
                         .values(user_total=0)
                 )
+                session.commit()
                 return order, f"{sender}, receive from:\n" + "\n".join(f"{item[0]} : {item[1]}" for item in diffs)
         else:
             return order, "Nothing to payout"
+
+    def balance(namespace):
+        name = namespace["name"]
+        handle = re.match(r"@(\S+):\S+\.\S+", name)
+        if handle:
+            user = session.query(Participant).where(Participant.matrix_address == handle.group(1)).first()
+        else:
+            user = session.query(Participant).where(Participant.name == name).first()
+        bal = euro_to_cent(namespace["balance"])
+        user.user_total = user.user_total + bal
+        session.commit()
+        return order, f"added {bal} to {user.name}"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -292,6 +314,11 @@ def parse_input(inp, session, order, sender):
 
     payout_parser = subparser.add_parser(cmd[8], help="let user payout there remaining debt/due balance")
     payout_parser.set_defaults(func=payout)
+
+    balance_parser = subparser.add_parser(cmd[9], help="adds initial balance")
+    balance_parser.set_defaults(func=balance)
+    balance_parser.add_argument("--name", "-n", type=str, help="recipient")
+    balance_parser.add_argument("balance", type=float, help="balance")
 
     try:
         args = order_parser.parse_args(inp)
