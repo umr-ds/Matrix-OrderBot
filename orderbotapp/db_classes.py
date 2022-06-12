@@ -9,10 +9,9 @@ Base = declarative_base()
 class Participant(Base):
     __tablename__ = "participants"
     pid = Column(Integer, primary_key=True)
-    name = Column(String)
-    matrix_address = Column(String)
+    name = Column(String, unique=True)
+    matrix_address = Column(String, unique=True)
     user_total = Column(Integer, default=0)
-    # A relationship between the Participant and the Cuts table.
     cuts = relationship('Cuts', backref='participants', lazy=True, cascade="all, delete-orphan")
 
 
