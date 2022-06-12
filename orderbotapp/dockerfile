@@ -3,6 +3,7 @@ FROM python:3.8
 ADD orderbot.py .
 ADD order.py .
 ADD order_parser.py .
+ADD db_classes.py .
 
 COPY requirements.txt .
 

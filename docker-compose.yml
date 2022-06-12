@@ -1,39 +1,10 @@
 version: '3.7'
 services:
-  postgres:
-    image: postgres:14.3
-    restart: unless-stopped
-    user: postgres
-    env_file:
-      database.env
-    logging:
-      options:
-        max-size: 10m
-        max-file: "3"
-    ports:
-      - '5438:5432'
-    volumes:
-      - ./sql/create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-
   orderbot:
     build: ./orderbotapp/
     restart: unless-stopped
     env_file:
       matrix.env
-    depends_on:
-      - postgres
-#        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      room.env
 volumes:
   db_data:
