@@ -1,4 +1,5 @@
 import argparse
+import logging
 import random
 import re
 from decimal import Decimal, ROUND_HALF_DOWN
@@ -6,7 +7,7 @@ from decimal import Decimal, ROUND_HALF_DOWN
 from sqlalchemy import or_, update
 
 from order import Order
-from orderbotapp.db_classes import Participant, Cuts
+from db_classes import Participant, Cuts
 
 cmd = [
     "register",
@@ -95,18 +96,31 @@ def no_active_order():
     return None, "start an order first!"
 
 
+def check_name_in_db(name, session):
+    return session.query(Participant).where(Participant.name == name.lower()).first()
+
+
+def check_address_in_db(address, session):
+    return session.query(Participant).where(Participant.matrix_address == address.lower()).first()
+
+
 def parse_input(inp, session, order, sender, members):
-    # todo: register before adding
     def add(namespace):
         order_to_return = order
         msg = ""
         price = euro_to_cent(namespace['price'])
         if namespace["name"] is None:
-            name = sender
+            p = check_address_in_db(sender, session)
+            if not p:
+                return order, "Register user first with !ob join"
+            name = p.name
         else:
-            name = namespace["name"]
+            p = check_name_in_db(namespace["name"], session)
+            if not p:
+                return order, "Register user first with !ob register <name>"
+            name = p.name
         if order_to_return is None:
-            order_to_return, msg = start({"name": "an unnamed order"})
+            order_to_return, msg = start({"name": ["an", "unnamed", "order"]})
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
         order_to_return.add_pos(user=name, item=meal_name, amount=price)
@@ -129,12 +143,13 @@ def parse_input(inp, session, order, sender, members):
         if order is None:
             return no_active_order()
         if namespace["self"]:
-            if sender in order.order:
-                return order, order.print_order(sender)
+            name = members[sender].lower()
+            if name in order.order:
+                return order, order.print_order(name)
             else:
-                return order, f"{sender} not in current order"
+                return order, f"{name} not in current order"
         else:
-            return order, order
+            return order, order.print_order()
 
     def tip(namespace):
         if order is None:
@@ -152,9 +167,9 @@ def parse_input(inp, session, order, sender, members):
         remove_all = namespace["all"]
         order_to_remove = namespace["order"]
         if namespace["name"] is None:
-            name = sender
+            name = members[sender].lower()
         else:
-            name = namespace["name"]
+            name = namespace["name"].lower()
 
         if remove_all or order_to_remove is None:
             order.remove(name)
@@ -167,23 +182,39 @@ def parse_input(inp, session, order, sender, members):
         if order is None:
             return no_active_order()
         if namespace["name"] is None:
-            name = sender
+            p = check_address_in_db(sender, session)
+            if not p:
+                return order, "Register user first with !ob join"
+            name = p.name
         else:
-            name = namespace["name"]
-        if namespace["amount"] is None or namespace["amount"] * 100 >= order.price + order.tip:
+            p = check_name_in_db(sender, session)
+            if not p:
+                return order, "Register user first with !ob register <name>"
+            name = p.name
+        if namespace["amount"] is None:
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
-        elif namespace["amount"] > 0:
-            amount = euro_to_cent(namespace['amount'])
-            order.pay(name, amount)
-            return order, f"{cent_to_euro(amount)} of order {order.name} paid."
+        elif namespace["amount"] * 100 >= order.price + order.tip:
+            order.add_tip(namespace["amount"] * 100 - order.price + order.tip)
+            order.pay(name)
+            save_order_in_db(order, session)
+            return None, "order paid\n" + str(order)
         else:
-            return order, "amount has to be positive"
+            return order, f"amount must be greater than {cent_to_euro(order.price + order.tip)}"
 
     def payout(namespace):
-        cur_user = session.query(Participant).where(Participant.matrix_address == sender).first()
+        if namespace["name"] is None:
+            cur_user = check_address_in_db(sender, session)
+            if not cur_user:
+                return order, "User not registered"
+        else:
+            name = " ".join(namespace["name"]).lower()
+            cur_user = check_name_in_db(name, session)
+            if not cur_user:
+                return order, "User not registered"
         debt = cur_user.user_total
+        name = cur_user.name
         if debt != 0:
             if debt > 0:
                 all_user = session.query(Participant).where(Participant.user_total < 0).order_by(
@@ -198,7 +229,7 @@ def parse_input(inp, session, order, sender, members):
                 for user in all_user_subset:
                     user_bal = user.user_total
                     change = min(user_bal + debt, 0)
-                    diffs.append((user.pid, user_bal - change))
+                    diffs.append((user.name, user_bal - change))
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
                         .values(user_total=change)
@@ -217,7 +248,7 @@ def parse_input(inp, session, order, sender, members):
                     .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{sender}, pay:\n" + "\n".join(f"{item[0]} : {- item[1]}" for item in diffs)
+                return order, f"{name} pay =>\n" + "\n".join(f"{item[0]} : {cent_to_euro(- item[1])}" for item in diffs)
 
             elif debt < 0:
                 all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
@@ -232,7 +263,7 @@ def parse_input(inp, session, order, sender, members):
                 for user in all_user_subset:
                     user_bal = user.user_total
                     change = max(user_bal + debt, 0)
-                    diffs.append((user.pid, user_bal - change))
+                    diffs.append((user.name, user_bal - change))
                     debt = min(debt + user_bal, 0)
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
@@ -251,15 +282,15 @@ def parse_input(inp, session, order, sender, members):
                     .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{sender}, receive from:\n" + "\n".join(f"{item[0]} : {item[1]}" for item in diffs)
+                return order, f"{name} receives from <= \n" + "\n".join(f"{item[0]} : {cent_to_euro(item[1])}" for item in diffs)
         else:
             return order, "Nothing to payout"
 
     def init(namespace):
-        name = namespace["name"]
+        name = " ".join(namespace["name"]).lower()
         handle = re.match(r"@(\S+):\S+\.\S+", name)
         if handle:
-            cur_user = session.query(Participant).where(Participant.matrix_address == handle.group(1)).first()
+            cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
         else:
             cur_user = session.query(Participant).where(Participant.name == name).first()
         if cur_user is None:
@@ -281,34 +312,36 @@ def parse_input(inp, session, order, sender, members):
         if user:
             return order, "user already registered"
         else:
-            session.add(Participant(matrix_address=sender.lower()))
+            session.add(Participant(matrix_address=sender.lower(), name=members[sender].lower()))
             session.commit()
-            return order, f"added {sender}"
+            return order, f"added {members[sender]} ({sender})"
 
     def register(namespace):
-        name = namespace["name"].lower()
-        address = namespace["address"].lower()
-        address_user = session.query(Participant).where(or_(Participant.name == name, Participant.matrix_address == address)).all()
+        name = " ".join(namespace["name"]).lower()
+        address_user = session.query(Participant).where(
+            Participant.name == name).all()
         if address_user:
             return order, "user already registered"
         else:
-            session.add(Participant(matrix_address=address, name=name))
+            session.add(Participant(name=name))
             session.commit()
-            return order, f"added {sender}"
+            return order, f"added {name}"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
 
     start_parser = subparser.add_parser(cmd[4], help="starts a new collective order")
     start_parser.set_defaults(func=start)
-    start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=None, help="name of collective order")
+    start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=["an", "unknown", "order"],
+                              help="name of collective order")
 
     add_parser = subparser.add_parser(cmd[1], help="adds new order")
     add_parser.set_defaults(func=add)
-    add_parser.add_argument("--name", "-n", type=str, help="orderer, if different from messenger")
     add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"],
                             help="name of order")
     add_parser.add_argument("price", type=float, help="price of order")
+    add_parser.add_argument("--name", "-n", type=str,
+                            help="orderer, if different from messenger, in quotes")
 
     tip_parser = subparser.add_parser(cmd[3], help="adds a tip")
     tip_parser.set_defaults(func=tip)
@@ -316,7 +349,8 @@ def parse_input(inp, session, order, sender, members):
 
     remove_parser = subparser.add_parser(cmd[2], help="removes order from collective order")
     remove_parser.set_defaults(func=remove)
-    remove_parser.add_argument("--name", "-n", type=str, help="orderer, if different from messenger")
+    remove_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
+                               help="orderer, if different from messenger")
     remove_parser.add_argument("--all", "-a", action='store_true',
                                help="flag indicates, that all orders from orderer are removed")
     remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
@@ -324,7 +358,8 @@ def parse_input(inp, session, order, sender, members):
 
     end_parser = subparser.add_parser(cmd[6], help="finishes collective order")
     end_parser.set_defaults(func=pay)
-    end_parser.add_argument("--name", "-n", type=str, help="payer, if different from messenger")
+    end_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
+                            help="payer, if different from messenger")
     end_parser.add_argument("--amount", "-a", type=float,
                             help="amount paid, if not specified, everything is paid, and the order is finished")
 
@@ -333,9 +368,7 @@ def parse_input(inp, session, order, sender, members):
 
     register_parser = subparser.add_parser(cmd[0], help="registers different user, use join to register yourself")
     register_parser.set_defaults(func=register)
-    register_parser.add_argument("address", type=str)
-    register_parser.add_argument("name", type=str)
-
+    register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
 
     print_parser = subparser.add_parser(cmd[7], help="displays current collective order")
     print_parser.set_defaults(func=print_order)
@@ -343,20 +376,23 @@ def parse_input(inp, session, order, sender, members):
 
     payout_parser = subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
     payout_parser.set_defaults(func=payout)
+    payout_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
+                               help="orderer, if different from messenger")
 
-    init_parser = subparser.add_parser(cmd[9], help="adds initial balance")
+    init_parser = subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
     init_parser.set_defaults(func=init)
-    init_parser.add_argument("name", type=str, help="recipient")
+    init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
     init_parser.add_argument("balance", type=float, help="balance")
 
     balance_parser = subparser.add_parser(cmd[10], help="displays the balance of all users")
     balance_parser.set_defaults(func=balance)
 
-    join_parser = subparser.add_parser(cmd[11], help="joins")
+    join_parser = subparser.add_parser(cmd[11], help="joins system")
     join_parser.set_defaults(func=join)
 
     try:
         args = order_parser.parse_args(inp)
+        logging.debug(args)
         result = args.func(vars(args))
         return result
     except SystemExit:
