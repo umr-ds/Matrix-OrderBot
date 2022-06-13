@@ -3,8 +3,9 @@ services:
   orderbot:
     build: ./orderbotapp/
     restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/orderbotapp/db
     env_file:
-      matrix.env
-      room.env
+      - matrix.env
 volumes:
   db_data:
