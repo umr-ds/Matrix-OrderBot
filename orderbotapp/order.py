@@ -1,5 +1,5 @@
 import order_parser
-from orderbotapp.db_classes import DB_Order
+from db_classes import DB_Order
 
 
 class Order:
@@ -15,7 +15,6 @@ class Order:
         return self.print_order()
 
     def print_order(self, user=None):
-
         s = (
             f"{self.name}",
             "\n".join([
