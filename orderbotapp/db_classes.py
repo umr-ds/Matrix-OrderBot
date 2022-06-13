@@ -35,8 +35,8 @@ class Cuts(Base):
     timestamp = Column(DATETIME, default=now())
 
 
-def setup_db():
-    db = create_engine("sqlite:///../sql/orderbot.db")
+def setup_db(path):
+    db = create_engine(path)
     Participant.__table__.create(bind=db, checkfirst=True)
     DB_Order.__table__.create(bind=db, checkfirst=True)
     Cuts.__table__.create(bind=db, checkfirst=True)
