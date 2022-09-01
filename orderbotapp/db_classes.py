@@ -23,7 +23,7 @@ class DB_Order(Base):
     price = Column(Integer)
     tip = Column(Integer)
     timestamp = Column(DATETIME, default=now())
-    cuts = relationship('Cuts', backref="orders", lazy=True, cascade="all,delete-orphan")
+    cuts = relationship('Cuts', backref="DB_Order", lazy=True, cascade="all,delete-orphan")
 
 
 class Cuts(Base):
@@ -32,6 +32,7 @@ class Cuts(Base):
     pid = Column(Integer, ForeignKey('participants.pid'))
     oid = Column(Integer, ForeignKey('orders.oid'))
     cut = Column(Integer)
+    name = Column(String)
     timestamp = Column(DATETIME, default=now())
 
 
