@@ -226,6 +226,8 @@ def parse_input(inp, session, order, sender, members):
             if debt > 0:
                 all_user = session.query(Participant).where(Participant.user_total < 0).order_by(
                     Participant.user_total.asc()).all()
+                if not all_user:
+                    return order, "all in debt"
                 all_user_subset = []
                 subset_debt = 0
                 while subset_debt < debt and all_user:
@@ -260,6 +262,8 @@ def parse_input(inp, session, order, sender, members):
             elif debt < 0:
                 all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
                     Participant.user_total.desc()).all()
+                if not all_user:
+                    return order, "all debtors"
                 all_user_subset = []
                 subset_debt = 0
                 while subset_debt > debt and all_user:
