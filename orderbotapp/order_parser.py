@@ -4,7 +4,7 @@ import random
 import re
 from decimal import Decimal, ROUND_HALF_DOWN
 
-from sqlalchemy import or_, update
+from sqlalchemy import or_, update, and_
 
 from db_classes import Participant, Cuts, DB_Order
 from order import Order
@@ -24,7 +24,7 @@ cmd = [
     "join",
     "all",
     "reopen",
-    "reorder"
+    "suggest"
 ]
 
 
@@ -91,7 +91,7 @@ def save_order_in_db(order, session):
         # update owned ect.
         session.execute(
             update(Participant).where(Participant.pid == user_id)
-                .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
+            .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
         )
         session.commit()
 
@@ -239,20 +239,20 @@ def parse_input(inp, session, order, sender, members):
                     diffs.append((user.name, user_bal - change))
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
-                            .values(user_total=change)
+                        .values(user_total=change)
                     )
                     debt = max(debt + user_bal, 0)
                 session.commit()
                 if debt > 0:
                     session.execute(
                         update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                            .values(user_total=debt)
+                        .values(user_total=debt)
                     )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
                 session.execute(
                     update(Participant).where(Participant.pid == cur_user.pid)
-                        .values(user_total=0)
+                    .values(user_total=0)
                 )
                 session.commit()
                 return order, f"{name} pay =>\n" + "\n".join(f"{item[0]} : {cent_to_euro(- item[1])}" for item in diffs)
@@ -274,19 +274,19 @@ def parse_input(inp, session, order, sender, members):
                     debt = min(debt + user_bal, 0)
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
-                            .values(user_total=change)
+                        .values(user_total=change)
                     )
                 session.commit()
                 if debt < 0:
                     session.execute(
                         update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                            .values(user_total=debt)
+                        .values(user_total=debt)
                     )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
                 session.execute(
                     update(Participant).where(Participant.pid == cur_user.pid)
-                        .values(user_total=0)
+                    .values(user_total=0)
                 )
                 session.commit()
                 return order, f"{name} receives from <= \n" + "\n".join(
@@ -371,8 +371,12 @@ def parse_input(inp, session, order, sender, members):
                      last_order])
         return order, "stub"
 
-    def reorder(*_):
-        return order, "stub"
+    def suggest(*_):
+        last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
+            Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
+            Cuts.timestamp.desc()).limit(5).all()
+        return order, f"as your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
+            item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -441,8 +445,11 @@ def parse_input(inp, session, order, sender, members):
     registered_parser = subparser.add_parser(cmd[12])
     registered_parser.set_defaults(func=registered)
 
-    reopen_parser = subparser.add_parser(cmd[13], help="reopens last order, if no current order")
+    reopen_parser = subparser.add_parser(cmd[13]) #help="reopens last order, if no current order"
     reopen_parser.set_defaults(func=reopen)
+
+    suggest_parser = subparser.add_parser(cmd[14], help="returns the last 5 orders, with pricing")
+    suggest_parser.set_defaults(func=suggest)
 
     try:
         args = order_parser.parse_args(inp)
