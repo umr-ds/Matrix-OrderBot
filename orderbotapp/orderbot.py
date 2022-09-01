@@ -7,11 +7,11 @@ from os.path import exists
 from nio import AsyncClient, RoomMessageText, RoomMemberEvent
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 import order_parser
 from db_classes import setup_db
 
 log.basicConfig(format="%(levelname)s|%(asctime)s: %(message)s", level=log.DEBUG)
-
 
 class Orderbot:
 
@@ -125,6 +125,11 @@ class Orderbot:
         # empty msg
         if not inp:
             return
+
+        if not self.members:
+            log.debug("getting members")
+            await self.get_members()
+
         # parse message
         order, response = order_parser.parse_input(inp, self.session, self.order, event.sender, self.members)
         log.info(f"Body:{event.body}, Msg:{response}")
