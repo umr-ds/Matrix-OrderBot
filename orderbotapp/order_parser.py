@@ -316,7 +316,8 @@ def parse_input(inp, session, order, sender, members):
         all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).order_by(
             Participant.user_total.desc()).all()
         msg = "Current balances: \n"
-        msg = msg + "\n".join([f"{user.name} ({user.matrix_address}):\t {user.user_total}" for user in all_balance])
+        msg = msg + "\n".join(
+            [f"{user.name} ({user.matrix_address}):\t {cent_to_euro(user.user_total)}" for user in all_balance])
         return order, msg
 
     def join(namespace):
@@ -449,7 +450,7 @@ def parse_input(inp, session, order, sender, members):
     registered_parser = subparser.add_parser(cmd[12])
     registered_parser.set_defaults(func=registered)
 
-    reopen_parser = subparser.add_parser(cmd[13]) #help="reopens last order, if no current order"
+    reopen_parser = subparser.add_parser(cmd[13])  # help="reopens last order, if no current order"
     reopen_parser.set_defaults(func=reopen)
 
     suggest_parser = subparser.add_parser(cmd[14], help="returns the last 5 orders, with pricing")
