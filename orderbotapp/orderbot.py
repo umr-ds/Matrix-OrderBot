@@ -4,7 +4,7 @@ import os
 import shlex
 from os.path import exists
 
-from nio import AsyncClient, RoomMessageText, RoomMemberEvent
+from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +12,7 @@ import order_parser
 from db_classes import setup_db
 
 log.basicConfig(format="%(levelname)s|%(asctime)s: %(message)s", level=log.DEBUG)
+
 
 class Orderbot:
 
@@ -90,7 +91,10 @@ class Orderbot:
     async def listen(self):
         await self.get_members()
         while True:
-            sync_response = await self.client.sync(60000)
+            sync_response = await self.client.sync(6000)
+            while isinstance(sync_response, SyncError):
+                sync_response = await self.client.sync(6000)
+
             with open("next_batch", "w") as next_batch_token:
                 next_batch_token.write(sync_response.next_batch)
 
