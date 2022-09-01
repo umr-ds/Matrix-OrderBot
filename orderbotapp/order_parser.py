@@ -330,7 +330,7 @@ def parse_input(inp, session, order, sender, members):
                     added_users.append(user)
             session.commit()
             if not added_users:
-                ret = "not user added"
+                ret = "no user added"
             else:
                 ret = "\n".join([f"added {user}:{members[user]}" for user in added_users])
             return order, ret
