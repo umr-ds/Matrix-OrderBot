@@ -6,8 +6,8 @@ from decimal import Decimal, ROUND_HALF_DOWN
 
 from sqlalchemy import or_, update
 
+from db_classes import Participant, Cuts, DB_Order
 from order import Order
-from db_classes import Participant, Cuts
 
 cmd = [
     "register",
@@ -21,7 +21,10 @@ cmd = [
     "payout",
     "init",
     "balance",
-    "join"
+    "join",
+    "all",
+    "reopen",
+    "reorder"
 ]
 
 
@@ -77,14 +80,18 @@ def save_order_in_db(order, session):
             .where(or_(Participant.name == user, Participant.matrix_address == user)) \
             .first()[0]
         user_tip = tip_shares[index]
+        for item in order.order[user]:
+            session.add(
+                Cuts(pid=user_id, oid=db_order.oid, cut=item[1], name=item[0])
+            )
         session.add(
-            Cuts(pid=user_id, oid=db_order.oid, cut=sum(item[1] for item in order.order[user]) + user_tip))
+            Cuts(pid=user_id, oid=db_order.oid, cut=user_tip, name="tip"))
         session.commit()
 
         # update owned ect.
         session.execute(
             update(Participant).where(Participant.pid == user_id)
-            .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
+                .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
         )
         session.commit()
 
@@ -232,20 +239,20 @@ def parse_input(inp, session, order, sender, members):
                     diffs.append((user.name, user_bal - change))
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
-                        .values(user_total=change)
+                            .values(user_total=change)
                     )
                     debt = max(debt + user_bal, 0)
                 session.commit()
                 if debt > 0:
                     session.execute(
                         update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                        .values(user_total=debt)
+                            .values(user_total=debt)
                     )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
                 session.execute(
                     update(Participant).where(Participant.pid == cur_user.pid)
-                    .values(user_total=0)
+                        .values(user_total=0)
                 )
                 session.commit()
                 return order, f"{name} pay =>\n" + "\n".join(f"{item[0]} : {cent_to_euro(- item[1])}" for item in diffs)
@@ -267,22 +274,23 @@ def parse_input(inp, session, order, sender, members):
                     debt = min(debt + user_bal, 0)
                     session.execute(
                         update(Participant).where(Participant.pid == user.pid)
-                        .values(user_total=change)
+                            .values(user_total=change)
                     )
                 session.commit()
                 if debt < 0:
                     session.execute(
                         update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                        .values(user_total=debt)
+                            .values(user_total=debt)
                     )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
                 session.execute(
                     update(Participant).where(Participant.pid == cur_user.pid)
-                    .values(user_total=0)
+                        .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{name} receives from <= \n" + "\n".join(f"{item[0]} : {cent_to_euro(item[1])}" for item in diffs)
+                return order, f"{name} receives from <= \n" + "\n".join(
+                    f"{item[0]} : {cent_to_euro(item[1])}" for item in diffs)
         else:
             return order, "Nothing to payout"
 
@@ -307,14 +315,28 @@ def parse_input(inp, session, order, sender, members):
         msg = msg + "\n".join([f"{user.name} ({user.matrix_address}):\t {user.user_total}" for user in all_balance])
         return order, msg
 
-    def join(*_):
-        user = session.query(Participant).where(Participant.matrix_address == sender.lower()).all()
-        if user:
-            return order, "user already registered"
-        else:
-            session.add(Participant(matrix_address=sender.lower(), name=members[sender].lower()))
+    def join(namespace):
+        if namespace["all"]:
+            users = [user.matrix_address for user in session.query(Participant).all()]
+            added_users = []
+            for user in members:
+                if user not in users:
+                    session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
+                    added_users.append(user)
             session.commit()
-            return order, f"added {members[sender]} ({sender})"
+            if not added_users:
+                ret = "not user added"
+            else:
+                ret = "\n".join([f"added {user}:{members[user]}" for user in added_users])
+            return order, ret
+        else:
+            user = session.query(Participant).where(Participant.matrix_address == sender.lower()).all()
+            if user:
+                return order, "user already registered"
+            else:
+                session.add(Participant(matrix_address=sender.lower(), name=members[sender].lower()))
+                session.commit()
+                return order, f"added {members[sender]} ({sender})"
 
     def register(namespace):
         name = " ".join(namespace["name"]).lower()
@@ -326,6 +348,31 @@ def parse_input(inp, session, order, sender, members):
             session.add(Participant(name=name))
             session.commit()
             return order, f"added {name}"
+
+    def registered(*_):
+        users = [(user.matrix_address, user.name) for user in session.query(Participant).all()]
+        return order, "\n".join(str(user) for user in users)
+
+    def reopen(*_):
+        if order:
+            return order, "close current order first"
+        last_order_id = session.query(DB_Order.oid).order_by(DB_Order.timestamp.desc()).first()
+        if last_order_id is not None:
+            last_order = session.query(DB_Order, Cuts, Participant) \
+                .filter(DB_Order.oid == last_order_id[0]) \
+                .filter(DB_Order.oid == Cuts.oid) \
+                .filter(Cuts.pid == Participant.pid) \
+                .all()
+            if last_order:  # 0 -> order, 1 -> cut, 2 -> participiant
+                return order, "\n".join(
+                    [str(cut[1].name) + "," + str(cut[2].name) + "," + str(cut[1].cut) + "," + str(
+                        last_order_id) + "," + str(
+                        cut[0].oid) for cut in
+                     last_order])
+        return order, "stub"
+
+    def reorder(*_):
+        return order, "stub"
 
     order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
     subparser = order_parser.add_subparsers()
@@ -388,7 +435,14 @@ def parse_input(inp, session, order, sender, members):
     balance_parser.set_defaults(func=balance)
 
     join_parser = subparser.add_parser(cmd[11], help="joins system")
+    join_parser.add_argument("--all", "-a", action='store_true', help="adds all current members of the room to the db")
     join_parser.set_defaults(func=join)
+
+    registered_parser = subparser.add_parser(cmd[12])
+    registered_parser.set_defaults(func=registered)
+
+    reopen_parser = subparser.add_parser(cmd[13], help="reopens last order, if no current order")
+    reopen_parser.set_defaults(func=reopen)
 
     try:
         args = order_parser.parse_args(inp)
