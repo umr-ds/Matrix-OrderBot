@@ -330,10 +330,10 @@ def parse_input(inp, session, order, sender, members):
 
     def join(namespace):
         if namespace["all"]:
-            users = [user.matrix_address for user in session.query(Participant).all() if user.matrix_address != "@orderbot:matrix.org"]
+            users = [user.matrix_address for user in session.query(Participant).all()]
             added_users = []
             for user in members:
-                if user not in users:
+                if user not in users and "orderbot" not in user.lower():
                     session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
                     added_users.append(user)
             session.commit()
