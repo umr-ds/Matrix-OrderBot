@@ -322,7 +322,7 @@ def parse_input(inp, session, order, sender, members):
 
     def join(namespace):
         if namespace["all"]:
-            users = [user.matrix_address for user in session.query(Participant).all()]
+            users = [user.matrix_address for user in session.query(Participant).all() if "orderbot" not in user.matrix_address]
             added_users = []
             for user in members:
                 if user not in users:
