@@ -390,13 +390,13 @@ def parse_input(inp, session, order, sender, members):
                 for cut in last_order:
                     if cut[1].name == "paid amount":
                         logging.debug(cut[1].name)
-                        new_order.pay(cut[2].matrix_address)
+                        # new_order.pay(cut[2].matrix_address)
                         updatePart(cut[2].pid, -cut[1].cut, session)
                 logging.debug(new_order.order)
                 session.delete(cut[0])
                 session.commit()
                 return new_order, new_order.print_order()
-        return order, "stub"
+        return order, "no last order"
 
     def suggest(*_):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
