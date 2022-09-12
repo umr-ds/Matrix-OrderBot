@@ -111,6 +111,14 @@ def check_address_in_db(address, session):
     return session.query(Participant).where(Participant.matrix_address == address.lower()).first()
 
 
+def updatePart(pid, cut, session):
+    session.execute(
+        update(Participant).where(Participant.pid == pid)
+        .values(user_total=Participant.user_total + cut)
+    )
+    session.commit()
+
+
 def parse_input(inp, session, order, sender, members):
     def add(namespace):
         order_to_return = order
@@ -330,7 +338,7 @@ def parse_input(inp, session, order, sender, members):
                     added_users.append(user)
             session.commit()
             if not added_users:
-                ret = "no user added"
+                ret = "no new users added"
             else:
                 ret = "\n".join([f"added {user}:{members[user]}" for user in added_users])
             return order, ret
@@ -369,12 +377,26 @@ def parse_input(inp, session, order, sender, members):
                 .filter(Cuts.pid == Participant.pid) \
                 .all()
             if last_order:  # 0 -> order, 1 -> cut, 2 -> participiant
-                return order, "\n".join(
-                    [str(cut[1].name) + "," + str(cut[2].name) + "," + str(cut[1].cut) + "," + str(
-                        last_order_id) + "," + str(
-                        cut[0].oid) for cut in
-                     last_order])
-        return order, "stub"
+                new_order = Order()
+                for cut in last_order:
+                    if cut[1].name == "tip":
+                        logging.debug(cut[1].name)
+                        new_order.add_tip(cut[1].cut)
+                        updatePart(cut[2].pid, -cut[1].cut, session)
+                    elif cut[1].name != "paid amount":
+                        logging.debug(cut[1].name)
+                        new_order.add_pos(cut[2].matrix_address, cut[1].name, cut[1].cut)
+                        updatePart(cut[2].pid, -cut[1].cut, session)
+                for cut in last_order:
+                    if cut[1].name == "paid amount":
+                        logging.debug(cut[1].name)
+                        # new_order.pay(cut[2].matrix_address)
+                        updatePart(cut[2].pid, -cut[1].cut, session)
+                logging.debug(new_order.order)
+                session.delete(cut[0])
+                session.commit()
+                return new_order, new_order.print_order()
+        return order, "no last order"
 
     def suggest(*_):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
