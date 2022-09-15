@@ -7,6 +7,5 @@ services:
       - db_data:/var/lib/orderbotapp/db
     env_file:
       - matrix.env
-      - room.env
 volumes:
   db_data:
