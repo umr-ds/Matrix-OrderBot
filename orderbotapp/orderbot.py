@@ -4,7 +4,7 @@ import os
 import shlex
 from os.path import exists
 
-from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError
+from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError, MatrixRoom, Event
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -25,7 +25,7 @@ class Orderbot:
         self.msg = []
         self.members = None
 
-    async def connect(self):
+    async def connect(self) -> None:
         self.username = os.environ["MUSERNAME"]
         if os.getenv("MHOMEROOM"):
             self.room = os.environ["MHOMEROOM"]
@@ -88,7 +88,7 @@ class Orderbot:
                 log.info(f"joined room {room_id}")
                 break
 
-    async def listen(self):
+    async def listen(self) -> None:
         await self.get_members()
         while True:
             sync_response = await self.client.sync(6000)
@@ -115,7 +115,7 @@ class Orderbot:
                     }
                 await self.client.room_send(self.room, "m.room.message", content)
 
-    async def message_cb(self, room, event):
+    async def message_cb(self, room: MatrixRoom, event: RoomMessageText) -> None:
         # filter out msg from rooms that are not the home room
         if room.room_id != self.room:
             return
@@ -142,13 +142,13 @@ class Orderbot:
         self.order = order
 
     # update member list on member event
-    async def join_cb(self, room, event):
+    async def join_cb(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
         if room.room_id == self.room:
             log.debug("member event occured")
             await self.get_members()
 
     # get all members from room
-    async def get_members(self):
+    async def get_members(self) -> None:
         self.members = {member.user_id: member.display_name for member in
                         (await self.client.joined_members(self.room)).members}
 

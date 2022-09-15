@@ -5,6 +5,7 @@ import re
 from decimal import Decimal, ROUND_HALF_DOWN
 
 from sqlalchemy import or_, update, and_
+from sqlalchemy.orm import Session
 
 from db_classes import Participant, Cuts, DB_Order
 from order import Order
@@ -28,15 +29,15 @@ cmd = [
 ]
 
 
-def cent_to_euro(cents):
+def cent_to_euro(cents: int) -> str:
     return "{:.2f}".format(cents / 100)
 
 
-def euro_to_cent(f):
+def euro_to_cent(f: float) -> int:
     return int(Decimal(f * 100).quantize(Decimal('1'), rounding=ROUND_HALF_DOWN))
 
 
-def split_tip(tip, number_of_shares):
+def split_tip(tip: int, number_of_shares: int) -> list[int]:
     """
     Precisely splits the tip.
     :param tip: the tip
@@ -55,7 +56,7 @@ def split_tip(tip, number_of_shares):
     return [x for x in l]
 
 
-def save_order_in_db(order, session):
+def save_order_in_db(order: Order, session: Session) -> None:
     # register all user in db, if not already in there.
     all_registered_users = [name for name_tuple in session.query(Participant.name, Participant.matrix_address).all() for
                             name in name_tuple]
@@ -96,22 +97,22 @@ def save_order_in_db(order, session):
         session.commit()
 
 
-def no_active_order():
+def no_active_order() -> (Order, str):
     """
     simple method to streamline reply-message
     """
     return None, "start an order first!"
 
 
-def check_name_in_db(name, session):
+def check_name_in_db(name: str, session: Session) -> Participant:
     return session.query(Participant).where(Participant.name == name.lower()).first()
 
 
-def check_address_in_db(address, session):
+def check_address_in_db(address: str, session: Session) -> Participant:
     return session.query(Participant).where(Participant.matrix_address == address.lower()).first()
 
 
-def updatePart(pid, cut, session):
+def update_part(pid: int, cut: int, session: Session) -> None:
     session.execute(
         update(Participant).where(Participant.pid == pid)
         .values(user_total=Participant.user_total + cut)
@@ -119,8 +120,8 @@ def updatePart(pid, cut, session):
     session.commit()
 
 
-def parse_input(inp, session, order, sender, members):
-    def add(namespace):
+def parse_input(inp: str, session: Session, order: Order, sender: str, members: list[str]) -> (Order, str):
+    def add(namespace: dict[str]) -> (Order, str):
         order_to_return = order
         msg = ""
         price = euro_to_cent(namespace['price'])
@@ -141,7 +142,7 @@ def parse_input(inp, session, order, sender, members):
         order_to_return.add_pos(user=name, item=meal_name, amount=price)
         return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {cent_to_euro(price)}"
 
-    def start(namespace):
+    def start(namespace: dict[str]) -> (Order, str):
         if order is None:
             if namespace["name"] is None or namespace["name"] == []:
                 return Order(), "Started new collective order"
@@ -151,10 +152,10 @@ def parse_input(inp, session, order, sender, members):
         else:
             return order, "finish current collective order first"
 
-    def cancel(*_):
+    def cancel(*_) -> (Order, str):
         return None, "Cancelled current collective order"
 
-    def print_order(namespace):
+    def print_order(namespace: dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         if namespace["self"]:
@@ -166,7 +167,7 @@ def parse_input(inp, session, order, sender, members):
         else:
             return order, order.print_order()
 
-    def tip(namespace):
+    def tip(namespace: dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         ttip = euro_to_cent(namespace['tip'])
@@ -176,7 +177,7 @@ def parse_input(inp, session, order, sender, members):
         else:
             return order, f"negative tip"
 
-    def remove(namespace):
+    def remove(namespace: dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         remove_all = namespace["all"]
@@ -193,7 +194,7 @@ def parse_input(inp, session, order, sender, members):
             order.remove(name, order_to_remove)
             return order, f"Removed order {namespace['order']} for {name} from order"
 
-    def pay(namespace):
+    def pay(namespace: dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         if namespace["name"] is None:
@@ -218,7 +219,7 @@ def parse_input(inp, session, order, sender, members):
         else:
             return order, f"amount must be greater than {cent_to_euro(order.price + order.tip)}"
 
-    def payout(namespace):
+    def payout(namespace: dict[str]) -> (Order, str):
         if namespace["name"] is None:
             cur_user = check_address_in_db(sender, session)
             if not cur_user:
@@ -306,7 +307,7 @@ def parse_input(inp, session, order, sender, members):
         else:
             return order, "Nothing to payout"
 
-    def init(namespace):
+    def init(namespace: dict[str]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         handle = re.match(r"@(\S+):\S+\.\S+", name)
         if handle:
@@ -320,7 +321,7 @@ def parse_input(inp, session, order, sender, members):
         session.commit()
         return order, f"added {cent_to_euro(bal)} to {cur_user.name}"
 
-    def balance(*_):
+    def balance(*_) -> (Order, str):
         all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).order_by(
             Participant.user_total.desc()).all()
         msg = "Current balances: \n"
@@ -328,7 +329,7 @@ def parse_input(inp, session, order, sender, members):
             [f"{user.name} ({user.matrix_address}):\t {cent_to_euro(user.user_total)}" for user in all_balance])
         return order, msg
 
-    def join(namespace):
+    def join(namespace: dict[str]) -> (Order, str):
         if namespace["all"]:
             users = [user.matrix_address for user in session.query(Participant).all()]
             added_users = []
@@ -351,7 +352,7 @@ def parse_input(inp, session, order, sender, members):
                 session.commit()
                 return order, f"added {members[sender]} ({sender})"
 
-    def register(namespace):
+    def register(namespace: dict[str]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         address_user = session.query(Participant).where(
             Participant.name == name).all()
@@ -362,11 +363,11 @@ def parse_input(inp, session, order, sender, members):
             session.commit()
             return order, f"added {name}"
 
-    def registered(*_):
+    def registered(*_) -> (Order, str):
         users = [(user.matrix_address, user.name) for user in session.query(Participant).all()]
         return order, "\n".join(str(user) for user in users)
 
-    def reopen(*_):
+    def reopen(*_) -> (Order, str):
         if order:
             return order, "close current order first"
         last_order_id = session.query(DB_Order.oid).order_by(DB_Order.timestamp.desc()).first()
@@ -382,23 +383,23 @@ def parse_input(inp, session, order, sender, members):
                     if cut[1].name == "tip":
                         logging.debug(cut[1].name)
                         new_order.add_tip(cut[1].cut)
-                        updatePart(cut[2].pid, -cut[1].cut, session)
+                        update_part(cut[2].pid, -cut[1].cut, session)
                     elif cut[1].name != "paid amount":
                         logging.debug(cut[1].name)
                         new_order.add_pos(cut[2].matrix_address, cut[1].name, cut[1].cut)
-                        updatePart(cut[2].pid, -cut[1].cut, session)
+                        update_part(cut[2].pid, -cut[1].cut, session)
                 for cut in last_order:
                     if cut[1].name == "paid amount":
                         logging.debug(cut[1].name)
                         # new_order.pay(cut[2].matrix_address)
-                        updatePart(cut[2].pid, -cut[1].cut, session)
+                        update_part(cut[2].pid, -cut[1].cut, session)
                 logging.debug(new_order.order)
                 session.delete(cut[0])
                 session.commit()
                 return new_order, new_order.print_order()
         return order, "no last order"
 
-    def suggest(*_):
+    def suggest(*_) -> (Order, str):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
             Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
             Cuts.timestamp.desc()).limit(5).all()

@@ -36,7 +36,7 @@ class Cuts(Base):
     timestamp = Column(DATETIME, default=now())
 
 
-def setup_db(path):
+def setup_db(path: str) -> None:
     db = create_engine(path)
     Participant.__table__.create(bind=db, checkfirst=True)
     DB_Order.__table__.create(bind=db, checkfirst=True)

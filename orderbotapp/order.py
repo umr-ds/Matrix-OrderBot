@@ -1,3 +1,5 @@
+from typing import Union
+
 import order_parser
 from db_classes import DB_Order
 
@@ -5,21 +7,22 @@ from db_classes import DB_Order
 class Order:
 
     def __init__(self, name="Order"):
-        self.order = {}
-        self.name = name
-        self.price = 0
-        self.tip = 0
-        self.paid = True
+        self.order: dict[str, list[tuple[str, int]]] = {}
+        self.name: str = name
+        self.price: int = 0
+        self.tip: int = 0
+        self.paid: Union[str, bool] = True
 
     def __str__(self):
         return self.print_order()
 
-    def print_order(self, user=None):
+    def print_order(self, user: str = None) -> str:
         s = (
             f"{self.name}",
             "\n".join([
                 f"{person}:\t {', '.join([' : '.join([item[0], order_parser.cent_to_euro(item[1])]) for item in betrag if item[0] != 'paid amount'])}"
-                for person, betrag in self.order.items() if not (len(betrag) == 1 and betrag[0][0] == 'paid amount') and user is None or person == user]),
+                for person, betrag in self.order.items() if
+                not (len(betrag) == 1 and betrag[0][0] == 'paid amount') and user is None or person == user]),
             f"Tip:\t {order_parser.cent_to_euro(self.tip)}",
             f"Total:\t {order_parser.cent_to_euro(self.price)}",
             f"Sum:\t {order_parser.cent_to_euro((self.tip + self.price))}",
@@ -27,7 +30,7 @@ class Order:
         )
         return "\n".join(s)
 
-    def add_pos(self, user, item, amount):
+    def add_pos(self, user: str, item: str, amount: int) -> None:
         if user in self.order:
             self.order[user].append((item, amount))
         else:
@@ -35,7 +38,7 @@ class Order:
         self.price = self.price + amount
         self.paid = None
 
-    def remove(self, user, item=None):
+    def remove(self, user: str, item: str = None) -> None:
         if user not in self.order:
             pass
         elif user is None:
@@ -48,18 +51,18 @@ class Order:
                     self.price = self.price - entry[1]
                     self.order[user].remove(c)
 
-    def add_tip(self, tip):
+    def add_tip(self, tip: int) -> None:
         if tip >= 0:
             self.tip = self.tip + tip
 
     def remove_tip(self):
         self.tip = 0
 
-    def sum_order(self, user):
+    def sum_order(self, user: str) -> None:
         if user in self.order:
             return sum([item[0] for item in self.order[user]])
 
-    def pay(self, user, amount=None):
+    def pay(self, user: str, amount: int = None) -> None:
         if user not in self.order:
             self.order[user] = []
         if amount is None:
