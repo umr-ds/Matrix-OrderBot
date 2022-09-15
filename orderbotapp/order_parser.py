@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from db_classes import Participant, Cuts, DB_Order
 from order import Order
+from typing import List, Dict
 
 cmd = [
     "register",
@@ -37,7 +38,7 @@ def euro_to_cent(f: float) -> int:
     return int(Decimal(f * 100).quantize(Decimal('1'), rounding=ROUND_HALF_DOWN))
 
 
-def split_tip(tip: int, number_of_shares: int) -> list[int]:
+def split_tip(tip: int, number_of_shares: int) -> List[int]:
     """
     Precisely splits the tip.
     :param tip: the tip
@@ -92,7 +93,7 @@ def save_order_in_db(order: Order, session: Session) -> None:
         # update owned ect.
         session.execute(
             update(Participant).where(Participant.pid == user_id)
-            .values(user_total=Participant.user_total + sum(item[1] for item in order.order[user]) + user_tip)
+            .values(user_total=Participant.user_total - sum(item[1] for item in order.order[user]) - user_tip)
         )
         session.commit()
 
@@ -120,7 +121,7 @@ def update_part(pid: int, cut: int, session: Session) -> None:
     session.commit()
 
 
-def parse_input(inp: str, session: Session, order: Order, sender: str, members: list[str]) -> (Order, str):
+def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: List[str]) -> (Order, str):
     def add(namespace: dict[str]) -> (Order, str):
         order_to_return = order
         msg = ""
@@ -142,7 +143,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
         order_to_return.add_pos(user=name, item=meal_name, amount=price)
         return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {cent_to_euro(price)}"
 
-    def start(namespace: dict[str]) -> (Order, str):
+    def start(namespace: Dict[str]) -> (Order, str):
         if order is None:
             if namespace["name"] is None or namespace["name"] == []:
                 return Order(), "Started new collective order"
@@ -155,7 +156,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
     def cancel(*_) -> (Order, str):
         return None, "Cancelled current collective order"
 
-    def print_order(namespace: dict[str]) -> (Order, str):
+    def print_order(namespace: Dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         if namespace["self"]:
@@ -167,7 +168,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
         else:
             return order, order.print_order()
 
-    def tip(namespace: dict[str]) -> (Order, str):
+    def tip(namespace: Dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         ttip = euro_to_cent(namespace['tip'])
@@ -177,7 +178,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
         else:
             return order, f"negative tip"
 
-    def remove(namespace: dict[str]) -> (Order, str):
+    def remove(namespace: Dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         remove_all = namespace["all"]
@@ -194,7 +195,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
             order.remove(name, order_to_remove)
             return order, f"Removed order {namespace['order']} for {name} from order"
 
-    def pay(namespace: dict[str]) -> (Order, str):
+    def pay(namespace: Dict[str]) -> (Order, str):
         if order is None:
             return no_active_order()
         if namespace["name"] is None:
@@ -219,7 +220,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
         else:
             return order, f"amount must be greater than {cent_to_euro(order.price + order.tip)}"
 
-    def payout(namespace: dict[str]) -> (Order, str):
+    def payout(namespace: Dict[str]) -> (Order, str):
         if namespace["name"] is None:
             cur_user = check_address_in_db(sender, session)
             if not cur_user:
@@ -236,7 +237,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
                 all_user = session.query(Participant).where(Participant.user_total < 0).order_by(
                     Participant.user_total.asc()).all()
                 if not all_user:
-                    return order, "all in debt"
+                    return order, "all debtors"
                 all_user_subset = []
                 subset_debt = 0
                 while subset_debt < debt and all_user:
@@ -266,13 +267,13 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
                     .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{name} pay =>\n" + "\n".join(f"{item[0]} : {cent_to_euro(- item[1])}" for item in diffs)
+                return order, f"{name} receives from <=\n" + "\n".join(f"{item[0]} : {cent_to_euro(- item[1])}" for item in diffs)
 
             elif debt < 0:
                 all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
                     Participant.user_total.desc()).all()
                 if not all_user:
-                    return order, "all debtors"
+                    return order, "all in debt"
                 all_user_subset = []
                 subset_debt = 0
                 while subset_debt > debt and all_user:
@@ -302,12 +303,12 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
                     .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{name} receives from <= \n" + "\n".join(
+                return order, f"{name} pay => \n" + "\n".join(
                     f"{item[0]} : {cent_to_euro(item[1])}" for item in diffs)
         else:
             return order, "Nothing to payout"
 
-    def init(namespace: dict[str]) -> (Order, str):
+    def init(namespace: Dict[str]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         handle = re.match(r"@(\S+):\S+\.\S+", name)
         if handle:
@@ -329,7 +330,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
             [f"{user.name} ({user.matrix_address}):\t {cent_to_euro(user.user_total)}" for user in all_balance])
         return order, msg
 
-    def join(namespace: dict[str]) -> (Order, str):
+    def join(namespace: Dict[str]) -> (Order, str):
         if namespace["all"]:
             users = [user.matrix_address for user in session.query(Participant).all()]
             added_users = []
@@ -352,7 +353,7 @@ def parse_input(inp: str, session: Session, order: Order, sender: str, members: 
                 session.commit()
                 return order, f"added {members[sender]} ({sender})"
 
-    def register(namespace: dict[str]) -> (Order, str):
+    def register(namespace: Dict[str]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         address_user = session.query(Participant).where(
             Participant.name == name).all()
