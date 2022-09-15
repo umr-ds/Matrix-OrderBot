@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Tuple, List
 
 import order_parser
 from db_classes import DB_Order
@@ -7,7 +7,7 @@ from db_classes import DB_Order
 class Order:
 
     def __init__(self, name="Order"):
-        self.order: dict[str, list[tuple[str, int]]] = {}
+        self.order: dict[str, List[Tuple[str, int]]] = {}
         self.name: str = name
         self.price: int = 0
         self.tip: int = 0
@@ -58,7 +58,7 @@ class Order:
     def remove_tip(self):
         self.tip = 0
 
-    def sum_order(self, user: str) -> None:
+    def sum_order(self, user: str) -> int:
         if user in self.order:
             return sum([item[0] for item in self.order[user]])
 
@@ -71,6 +71,6 @@ class Order:
         else:
             self.order[user].append(("paid amount", -amount))
 
-    def to_dborder(self):
+    def to_dborder(self) -> DB_Order:
         return DB_Order(name=self.name, total=self.price + self.tip, price=self.price,
                         tip=self.tip)

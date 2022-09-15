@@ -136,7 +136,7 @@ class Orderbot:
 
         # parse message
         order, response = order_parser.parse_input(inp, self.session, self.order, event.sender, self.members)
-        log.info(f"Body:{event.body}, Msg:{response}")
+        log.debug(f"Body:{event.body}, Msg:{response}")
         # put received response onto msg stack
         self.msg.append(response)
         self.order = order
