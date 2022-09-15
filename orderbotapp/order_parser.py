@@ -408,15 +408,15 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return order, f"as your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
             item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
 
-    order_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
-    subparser = order_parser.add_subparsers()
+    order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
+    order_subparser = order_parser.add_subparsers()
 
-    start_parser = subparser.add_parser(cmd[4], help="starts a new collective order")
+    start_parser = order_subparser.add_parser(cmd[4], help="starts a new collective order")
     start_parser.set_defaults(func=start)
     start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=["an", "unknown", "order"],
                               help="name of collective order")
 
-    add_parser = subparser.add_parser(cmd[1], help="adds new order")
+    add_parser = order_subparser.add_parser(cmd[1], help="adds new order")
     add_parser.set_defaults(func=add)
     add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"],
                             help="name of order")
@@ -424,11 +424,11 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     add_parser.add_argument("--name", "-n", type=str,
                             help="orderer, if different from messenger, in quotes")
 
-    tip_parser = subparser.add_parser(cmd[3], help="adds a tip")
+    tip_parser = order_subparser.add_parser(cmd[3], help="adds a tip")
     tip_parser.set_defaults(func=tip)
     tip_parser.add_argument("tip", type=float, help="tip amount")
 
-    remove_parser = subparser.add_parser(cmd[2], help="removes order from collective order")
+    remove_parser = order_subparser.add_parser(cmd[2], help="removes order from collective order")
     remove_parser.set_defaults(func=remove)
     remove_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
@@ -437,62 +437,85 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
                                help="name of order, otherwise all are removed (see -a flag)")
 
-    end_parser = subparser.add_parser(cmd[6], help="finishes collective order")
+    end_parser = order_subparser.add_parser(cmd[6], help="finishes collective order")
     end_parser.set_defaults(func=pay)
     end_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                             help="payer, if different from messenger")
     end_parser.add_argument("--amount", "-a", type=float,
                             help="amount paid, if not specified, everything is paid, and the order is finished")
 
-    cancel_parser = subparser.add_parser(cmd[5], help="cancels current collective order")
+    cancel_parser = order_subparser.add_parser(cmd[5], help="cancels current collective order")
     cancel_parser.set_defaults(func=cancel)
 
-    register_parser = subparser.add_parser(cmd[0], help="registers different user, use join to register yourself")
-    register_parser.set_defaults(func=register)
-    register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
-
-    print_parser = subparser.add_parser(cmd[7], help="displays current collective order")
+    print_parser = order_subparser.add_parser(cmd[7], help="displays current collective order")
     print_parser.set_defaults(func=print_order)
     print_parser.add_argument("--self", "-s", action='store_true', help="displays only the orders of the messenger")
 
-    payout_parser = subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
+    reopen_parser = order_subparser.add_parser(cmd[13])  # help="reopens last order, if no current order"
+    reopen_parser.set_defaults(func=reopen)
+
+    user_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
+    user_subparser = user_parser.add_subparsers()
+
+    register_parser = user_subparser.add_parser(cmd[0], help="registers different user, use join to register yourself")
+    register_parser.set_defaults(func=register)
+    register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
+
+    payout_parser = user_subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
     payout_parser.set_defaults(func=payout)
     payout_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
 
-    init_parser = subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
+    init_parser = user_subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
     init_parser.set_defaults(func=init)
     init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
     init_parser.add_argument("balance", type=float, help="balance")
 
-    balance_parser = subparser.add_parser(cmd[10], help="displays the balance of all users")
+    balance_parser = user_subparser.add_parser(cmd[10], help="displays the balance of all users")
     balance_parser.set_defaults(func=balance)
 
-    join_parser = subparser.add_parser(cmd[11], help="joins system")
+    join_parser = user_subparser.add_parser(cmd[11], help="joins system")
     join_parser.add_argument("--all", "-a", action='store_true', help="adds all current members of the room to the db")
     join_parser.set_defaults(func=join)
 
-    registered_parser = subparser.add_parser(cmd[12])
+    registered_parser = user_subparser.add_parser(cmd[12])
     registered_parser.set_defaults(func=registered)
 
-    reopen_parser = subparser.add_parser(cmd[13])  # help="reopens last order, if no current order"
-    reopen_parser.set_defaults(func=reopen)
-
-    suggest_parser = subparser.add_parser(cmd[14], help="returns the last 5 orders, with pricing")
+    suggest_parser = user_subparser.add_parser(cmd[14], help="returns the last 5 orders, with pricing")
     suggest_parser.set_defaults(func=suggest)
 
+    main_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
+    main_subparser = main_parser.add_subparsers()
+
+    order_parser = main_subparser.add_parser("order", parents=[order_parser], help="manages orders")
+    order_parser.add_argument("order", action="store_true", help="manages orders")
+    user_parser = main_subparser.add_parser("users", parents=[user_parser], help="manages users")
+    user_parser.add_argument("users", action="store_true", help="manages users")
+
     try:
-        args = order_parser.parse_args(inp)
+        args = main_parser.parse_args(inp)
         logging.debug(args)
         result = args.func(vars(args))
         return result
-    except SystemExit:
-        if inp[0] in cmd:
-            possible_parsers = [action for action in order_parser._actions if
-                                isinstance(action, argparse._SubParsersAction)]
-            for parser_action in possible_parsers:
-                for choice, subparser in parser_action.choices.items():
-                    if choice == inp[0]:
-                        return order, subparser.format_help()
+    except (SystemExit, AttributeError):
+
+        if inp[0] in ["order", "users"]:
+            if len(inp) > 1 and inp[1] in cmd:
+                possible_parsers = [action for action in order_parser._actions if
+                                    isinstance(action, argparse._SubParsersAction)] + \
+                                   [action for action in user_parser._actions if
+                                    isinstance(action, argparse._SubParsersAction)]
+                for parser_action in possible_parsers:
+                    for choice, subparser in parser_action.choices.items():
+                        if choice == inp[1]:
+                            return order, subparser.format_help()
+            else:
+                possible_parsers = [action for action in main_parser._actions if
+                                    isinstance(action, argparse._SubParsersAction)]
+                for parser_action in possible_parsers:
+                    for choice, subparser in parser_action.choices.items():
+                        if choice == inp[0]:
+                            return order, subparser.format_help()
+
         else:
-            return order, order_parser.format_help()
+            return order, main_parser.format_help()
