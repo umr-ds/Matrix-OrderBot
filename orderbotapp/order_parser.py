@@ -22,12 +22,13 @@ cmd = [
     "end",  # end order and distribute cut
     "print",
     "payout",
-    "init",
+    "add",
     "balance",
     "join",
     "all",
     "reopen",
-    "suggest"
+    "suggest",
+    "init"
 ]
 
 
@@ -310,7 +311,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             return order, "Nothing to payout"
 
-    def init(namespace: Dict[str, Any]) -> (Order, str):
+    def add_money(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         handle = re.match(r"@(\S+):\S+\.\S+", name)
         if handle:
@@ -409,6 +410,23 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return order, f"as your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
             item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
 
+    def init(namespace: Dict[str, Any]) -> (Order, str):
+        name = " ".join(namespace["name"]).lower()
+        handle = re.match(r"@(\S+):\S+\.\S+", name)
+        if handle:
+            cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
+        else:
+            cur_user = session.query(Participant).where(Participant.name == name).first()
+        if cur_user is None:
+            return order, f"user {name} not registered"
+        bal = euro_to_cent(namespace["balance"])
+        if cur_user.user_total == 0:
+            cur_user.user_total = bal
+            return order, f"set init balance for {cur_user.name} to {cent_to_euro(bal)}"
+        else:
+            return order, f"balance of {cur_user.name} is not zero, use 'balance' to check"
+
+
     order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
     order_subparser = order_parser.add_subparsers()
 
@@ -467,10 +485,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     payout_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
 
-    init_parser = user_subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
-    init_parser.set_defaults(func=init)
-    init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
-    init_parser.add_argument("balance", type=float, help="balance")
+    add_money_parser = user_subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
+    add_money_parser.set_defaults(func=add_money)
+    add_money_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
+    add_money_parser.add_argument("balance", type=float, help="balance")
 
     balance_parser = user_subparser.add_parser(cmd[10], help="displays the balance of all users")
     balance_parser.set_defaults(func=balance)
@@ -492,6 +510,12 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     order_parser.add_argument("order", action="store_true", help="manages orders")
     user_parser = main_subparser.add_parser("users", parents=[user_parser], help="manages users")
     user_parser.add_argument("users", action="store_true", help="manages users")
+
+    init_parser = user_subparser.add_parser(cmd[15], help="initializes user")
+    init_parser.set_defaults(func=init)
+    init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="name of user")
+    init_parser.add_argument("balance", type=float, help="balance")
+
 
     try:
         args = main_parser.parse_args(inp)
