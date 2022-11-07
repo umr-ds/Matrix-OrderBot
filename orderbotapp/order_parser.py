@@ -2,6 +2,7 @@ import argparse
 import logging
 import random
 import re
+import traceback
 from decimal import Decimal, ROUND_HALF_DOWN
 
 from sqlalchemy import or_, update, and_
@@ -204,7 +205,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 return order, "Register user first with !ob join"
             name = p.name
         else:
-            p = check_name_in_db(sender, session)
+            p = check_name_in_db(" ".join(namespace["name"]), session)
             if not p:
                 return order, "Register user first with !ob register <name>"
             name = p.name
@@ -212,8 +213,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
-        elif namespace["amount"] * 100 >= order.price + order.tip:
-            order.add_tip(namespace["amount"] * 100 - order.price + order.tip)
+        elif euro_to_cent(namespace["amount"]) >= order.price + order.tip:
+            order.add_tip(euro_to_cent(namespace["amount"]) - (order.price + order.tip))
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
@@ -385,16 +386,16 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                     if cut[1].name == "tip":
                         logging.debug(cut[1].name)
                         new_order.add_tip(cut[1].cut)
-                        update_part(cut[2].pid, -cut[1].cut, session)
+                        update_part(cut[2].pid, cut[1].cut, session)
                     elif cut[1].name != "paid amount":
                         logging.debug(cut[1].name)
                         new_order.add_pos(cut[2].matrix_address, cut[1].name, cut[1].cut)
-                        update_part(cut[2].pid, -cut[1].cut, session)
+                        update_part(cut[2].pid, cut[1].cut, session)
                 for cut in last_order:
                     if cut[1].name == "paid amount":
                         logging.debug(cut[1].name)
                         # new_order.pay(cut[2].matrix_address)
-                        update_part(cut[2].pid, -cut[1].cut, session)
+                        update_part(cut[2].pid, cut[1].cut, session)
                 logging.debug(new_order.order)
                 session.delete(cut[0])
                 session.commit()
@@ -500,10 +501,15 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     except (SystemExit, AttributeError):
 
         if inp[0] in ["order", "users"]:
-            if len(inp) > 1 and inp[1] in cmd:
+            if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
                 possible_parsers = [action for action in order_parser._actions if
-                                    isinstance(action, argparse._SubParsersAction)] + \
-                                   [action for action in user_parser._actions if
+                                    isinstance(action, argparse._SubParsersAction)]
+                for parser_action in possible_parsers:
+                    for choice, subparser in parser_action.choices.items():
+                        if choice == inp[1]:
+                            return order, subparser.format_help()
+            elif len(inp) > 1 and inp[1] in cmd and inp[0] == "users":
+                possible_parsers = [action for action in user_parser._actions if
                                     isinstance(action, argparse._SubParsersAction)]
                 for parser_action in possible_parsers:
                     for choice, subparser in parser_action.choices.items():
