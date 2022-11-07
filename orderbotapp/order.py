@@ -17,17 +17,29 @@ class Order:
         return self.print_order()
 
     def print_order(self, user: str = None) -> str:
-        s = (
-            f"{self.name}",
-            "\n".join([
-                f"{person}:\t {', '.join([' : '.join([item[0], order_parser.cent_to_euro(item[1])]) for item in betrag if item[0] != 'paid amount'])}"
-                for person, betrag in self.order.items() if
-                not (len(betrag) == 1 and betrag[0][0] == 'paid amount') and user is None or person == user]),
-            f"Tip:\t {order_parser.cent_to_euro(self.tip)}",
-            f"Total:\t {order_parser.cent_to_euro(self.price)}",
-            f"Sum:\t {order_parser.cent_to_euro((self.tip + self.price))}",
-            f"Paid by: {self.paid}"
-        )
+        title = f"{self.name}"
+
+        maxName = max([len(user) for user in self.order])
+        maxItem = max([len(item[0]) for user in self.order for item in self.order[user]])
+        maxAmount = len(str(self.price + self.tip)) + 1
+
+        order = ""
+        for user in self.order:
+            order += f"{user.title():<{maxName}}: "
+            count = 0
+            for item in self.order[user]:
+                if count == 0:
+                    order += f"{item[0]:<{maxItem}} {order_parser.cent_to_euro(item[1]):>{maxAmount}}€"
+                    count += 1
+                else:
+                    order += f"{'':<{maxName + 2}}{item[0]:<{maxItem}} {order_parser.cent_to_euro(item[1]):>{maxAmount}}€"
+                order += "\n"
+        s = (title, order,
+            f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {order_parser.cent_to_euro(self.tip):>{maxAmount}}€",
+            f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {order_parser.cent_to_euro(self.price):>{maxAmount}}€",
+            f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {order_parser.cent_to_euro((self.tip + self.price)):>{maxAmount}}€",
+            f"Paid by: {self.paid.title() if self.paid else 'Not paid'}"
+            )
         return "\n".join(s)
 
     def add_pos(self, user: str, item: str, amount: int) -> None:

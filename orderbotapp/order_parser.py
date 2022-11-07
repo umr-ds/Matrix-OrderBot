@@ -143,7 +143,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             msg = msg + "\n"
         meal_name = " ".join(namespace["order name"])
         order_to_return.add_pos(user=name, item=meal_name, amount=price)
-        return order_to_return, msg + f"Order added for {name}, order: {meal_name}, price: {cent_to_euro(price)}"
+        return order_to_return, msg + f"Order added for {name.title()}, order: {meal_name}, price: {cent_to_euro(price)}"
 
     def start(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
@@ -153,7 +153,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 return Order(" ".join(namespace["name"])), "Started new collective order with Name: " + " ".join(
                     namespace["name"])
         else:
-            return order, "finish current collective order first"
+            return order, "Finish current collective order first"
 
     def cancel(*_) -> (Order, str):
         return None, "Cancelled current collective order"
@@ -166,7 +166,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             if name in order.order:
                 return order, order.print_order(name)
             else:
-                return order, f"{name} not in current order"
+                return order, f"{name.title()} not in current order"
         else:
             return order, order.print_order()
 
@@ -192,10 +192,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
         if remove_all or order_to_remove is None:
             order.remove(name)
-            return order, f"Removed user {name} from order"
+            return order, f"Removed user {name.title()} from order"
         else:
             order.remove(name, order_to_remove)
-            return order, f"Removed order {namespace['order']} for {name} from order"
+            return order, f"Removed order {namespace['order']} for {name.title()} from order"
 
     def pay(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
@@ -269,8 +269,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                     .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{name} receives from <=\n" + "\n".join(
-                    f"{item[0]} : {cent_to_euro(- item[1])}" for item in diffs)
+                return order, f"{name.title()} receives from <=\n" + "\n".join(
+                    f"{item[0].title()} : {cent_to_euro(- item[1])}" for item in diffs)
 
             elif debt < 0:
                 all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
@@ -306,8 +306,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                     .values(user_total=0)
                 )
                 session.commit()
-                return order, f"{name} pay => \n" + "\n".join(
-                    f"{item[0]} : {cent_to_euro(item[1])}" for item in diffs)
+                return order, f"{name.title()} pay => \n" + "\n".join(
+                    f"{item[0].title()} : {cent_to_euro(item[1])}" for item in diffs)
         else:
             return order, "Nothing to payout"
 
@@ -319,18 +319,21 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             cur_user = session.query(Participant).where(Participant.name == name).first()
         if cur_user is None:
-            return order, f"user {name} not registered"
+            return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
         cur_user.user_total = cur_user.user_total + bal
         session.commit()
-        return order, f"added {cent_to_euro(bal)} to {cur_user.name}"
+        return order, f"Added {cent_to_euro(bal)} to {cur_user.name.title()}'s balance"
 
     def balance(*_) -> (Order, str):
         all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).order_by(
             Participant.user_total.desc()).all()
+        max_name = max(len(user.name) for user in all_balance)
+        max_address = max([len(user.matrix_address) for user in all_balance if user.matrix_address] + [len("None")])
+        max_balance = max(len(str(user.user_total)) for user in all_balance) + 1
         msg = "Current balances: \n"
         msg = msg + "\n".join(
-            [f"{user.name} ({user.matrix_address}):\t {cent_to_euro(user.user_total)}" for user in all_balance])
+            [f"{user.name.title():<{max_name}} ({user.matrix_address if user.matrix_address else 'None':>{max_address}}): {cent_to_euro(user.user_total):>{max_balance}}" for user in all_balance])
         return order, msg
 
     def join(namespace: Dict[str, Any]) -> (Order, str):
@@ -343,29 +346,29 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                     added_users.append(user)
             session.commit()
             if not added_users:
-                ret = "no new users added"
+                ret = "No new users added"
             else:
-                ret = "\n".join([f"added {user}:{members[user]}" for user in added_users])
+                ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users])
             return order, ret
         else:
             user = session.query(Participant).where(Participant.matrix_address == sender.lower()).all()
             if user:
-                return order, "user already registered"
+                return order, "User already registered"
             else:
                 session.add(Participant(matrix_address=sender.lower(), name=members[sender].lower()))
                 session.commit()
-                return order, f"added {members[sender]} ({sender})"
+                return order, f"Added {members[sender].title()} ({sender.title()})"
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         address_user = session.query(Participant).where(
             Participant.name == name).all()
         if address_user:
-            return order, "user already registered"
+            return order, "User already registered"
         else:
             session.add(Participant(name=name))
             session.commit()
-            return order, f"added {name}"
+            return order, f"Added {name.title()}"
 
     def registered(*_) -> (Order, str):
         users = [(user.matrix_address, user.name) for user in session.query(Participant).all()]
@@ -373,7 +376,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     def reopen(*_) -> (Order, str):
         if order:
-            return order, "close current order first"
+            return order, "Close current order first"
         last_order_id = session.query(DB_Order.oid).order_by(DB_Order.timestamp.desc()).first()
         if last_order_id is not None:
             last_order = session.query(DB_Order, Cuts, Participant) \
@@ -401,13 +404,13 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 session.delete(cut[0])
                 session.commit()
                 return new_order, new_order.print_order()
-        return order, "no last order"
+        return order, "No last order"
 
     def suggest(*_) -> (Order, str):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
             Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
             Cuts.timestamp.desc()).limit(5).all()
-        return order, f"as your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
+        return order, f"As your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
             item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
 
     def init(namespace: Dict[str, Any]) -> (Order, str):
@@ -418,13 +421,13 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             cur_user = session.query(Participant).where(Participant.name == name).first()
         if cur_user is None:
-            return order, f"user {name} not registered"
+            return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
         if cur_user.user_total == 0:
             cur_user.user_total = bal
-            return order, f"set init balance for {cur_user.name} to {cent_to_euro(bal)}"
+            return order, f"Set init balance for {cur_user.name.title()} to {cent_to_euro(bal)}"
         else:
-            return order, f"balance of {cur_user.name} is not zero, use 'balance' to check"
+            return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
 
 
     order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
@@ -523,7 +526,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         result = args.func(vars(args))
         return result
     except (SystemExit, AttributeError):
-
+        traceback.print_exc()
         if inp[0] in ["order", "users"]:
             if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
                 possible_parsers = [action for action in order_parser._actions if
