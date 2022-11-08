@@ -526,7 +526,6 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         result = args.func(vars(args))
         return result
     except (SystemExit, AttributeError):
-        traceback.print_exc()
         if inp[0] in ["order", "users"]:
             if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
                 possible_parsers = [action for action in order_parser._actions if

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import logging as log
 import os
 import shlex
@@ -122,24 +123,28 @@ class Orderbot:
         # filter out msg from oneself
         if event.sender == self.username:
             return
-        # filter out irrelevant msgs
-        if not event.body.startswith("!orderbot") and not event.body.startswith("!ob"):
-            return
-        inp = shlex.split(event.body)[1:]
-        # empty msg
-        if not inp:
-            return
 
-        if not self.members:
-            log.debug("getting members")
-            await self.get_members()
+        inp = event.body.split("\n")
+        for message in inp:
+            message = message.strip()
+            log.debug(message)
+            if message.startswith("!orderbot") or message.startswith("!ob"):
+                single_line = shlex.split(message)[1:]
 
-        # parse message
-        order, response = order_parser.parse_input(inp, self.session, self.order, event.sender, self.members)
-        log.debug(f"Body:{event.body}, Msg:{response}")
-        # put received response onto msg stack
-        self.msg.append(response)
-        self.order = order
+                # empty msg
+                if not single_line:
+                    return
+
+                if not self.members:
+                    log.debug("getting members")
+                    await self.get_members()
+
+                # parse message
+                order, response = order_parser.parse_input(single_line, self.session, self.order, event.sender, self.members)
+                log.debug(f"Body:{event.body}, Msg:{response}")
+                # put received response onto msg stack
+                self.msg.append(response)
+                self.order = order
 
     # update member list on member event
     async def join_cb(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
@@ -151,6 +156,7 @@ class Orderbot:
     async def get_members(self) -> None:
         self.members = {member.user_id: member.display_name for member in
                         (await self.client.joined_members(self.room)).members}
+
 
 
 async def main():
