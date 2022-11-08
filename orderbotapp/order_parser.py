@@ -329,6 +329,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
+        session.add(
+            Cuts(pid=cur_user.pid, cut=bal, name="manual")
+        )
+        session.commit()
         cur_user.user_total = cur_user.user_total + bal
         session.commit()
         return order, f"Added {cent_to_euro(bal)} to {cur_user.name.title()}'s balance"
@@ -432,7 +436,12 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
         if cur_user.user_total == 0:
+            session.add(
+                Cuts(pid=cur_user.pid, cut=bal, name="initial balance")
+            )
+            session.commit()
             cur_user.user_total = bal
+            session.commit()
             return order, f"Set init balance for {cur_user.name.title()} to {cent_to_euro(bal)}"
         else:
             return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
