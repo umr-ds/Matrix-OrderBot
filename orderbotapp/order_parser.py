@@ -123,6 +123,12 @@ def update_part(pid: int, cut: int, session: Session) -> None:
     session.commit()
 
 
+def set_recommended_payers(order: Order, session: Session) -> None:
+    user = session.query(Participant).filter(Participant.name.in_(order.order.keys())).order_by(
+        Participant.user_total).first()
+    if user:
+        order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
+
 def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: List[str]) -> (Order, str):
     def add(namespace: Dict[str, Any]) -> (Order, str):
         order_to_return = order
@@ -161,6 +167,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     def print_order(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
             return no_active_order()
+
+        set_recommended_payers(order, session)
         if namespace["self"]:
             name = members[sender].lower()
             if name in order.order:
