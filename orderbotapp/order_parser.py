@@ -5,7 +5,8 @@ import re
 import traceback
 from decimal import Decimal, ROUND_HALF_DOWN
 
-from sqlalchemy import or_, update, and_
+from sqlalchemy import or_, update, and_, exc
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from db_classes import Participant, Cuts, DB_Order
@@ -340,6 +341,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     def balance(*_) -> (Order, str):
         all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).order_by(
             Participant.user_total.desc()).all()
+        if not all_balance:
+            return order, "no participants (yet)"
         max_name = max(len(user.name) for user in all_balance)
         max_address = max([len(user.matrix_address) for user in all_balance if user.matrix_address] + [len("None")])
         max_balance = max(len(str(user.user_total)) for user in all_balance) + 1
@@ -351,11 +354,26 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     def join(namespace: Dict[str, Any]) -> (Order, str):
         if namespace["all"]:
             users = [user.matrix_address for user in session.query(Participant).all()]
+            user_names = [user.name for user in session.query(Participant).all()]
             added_users = []
             for user in members:
-                if user not in users and "orderbot" not in user.lower():
+                if user not in users and members[user].lower() not in user_names and "orderbot" not in user.lower():
+                    # case 1: user name not yet taken, user matrix address not yet taken
                     session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
                     added_users.append(user)
+                elif user not in users and "orderbot" not in user.lower() and members[user].lower() in user_names:
+                    # case 2: username already taken
+                    taken_username = session.query(Participant).where(Participant.name == members[user].lower()).first()
+                    # case 2.1: user has not set a matrix address yet
+                    if taken_username.matrix_address is None:
+                        session.execute(
+                            update(Participant).where(Participant.name == members[user].lower())
+                            .values(matrix_address=user.lower())
+                        )
+                        added_users.append(user)
+                    else:
+                        # case 2.2: user has already registered with a different matrix address
+                        session.add(Participant(matrix_address=user.lower(), name=members[user].lower() + user.lower()))
             session.commit()
             if not added_users:
                 ret = "No new users added"
@@ -542,6 +560,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         logging.debug(args)
         result = args.func(vars(args))
         return result
+
+    # eror handling for wrong input or help command
     except (SystemExit, AttributeError):
         if inp[0] in ["order", "users"]:
             if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
@@ -568,3 +588,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
         else:
             return order, main_parser.format_help()
+
+    # error handling for database errors
+    except exc.SQLAlchemyError as e:
+        logging.error(e)
+        return order, "SQLAlchemy error, see logs for more info"
