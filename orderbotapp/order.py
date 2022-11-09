@@ -3,6 +3,7 @@ from typing import Union, Tuple, List
 import order_parser
 from db_classes import DB_Order
 
+order_version: int = 1
 
 class Order:
 
@@ -13,6 +14,7 @@ class Order:
         self.tip: int = 0
         self.paid: Union[str, bool] = True
         self.recommended_payer: Tuple[str, int] = None
+        self.version: int = 1
 
     def __str__(self):
         return self.print_order()
