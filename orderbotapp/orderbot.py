@@ -2,6 +2,7 @@ import asyncio
 import logging
 import logging as log
 import os
+import pickle
 import shlex
 from os.path import exists
 
@@ -52,6 +53,11 @@ class Orderbot:
             sync_response = await self.client.sync()
             with open("next_batch", "w") as next_batch_token:
                 next_batch_token.write(sync_response.next_batch)
+
+        # load prev. order
+        if exists("order.pickle"):
+            with open("order.pickle", "rb") as order_file:
+                self.order = pickle.load(order_file)
 
         # add callback for Messages/Member events
         self.client.add_event_callback(self.message_cb, RoomMessageText)
@@ -145,6 +151,8 @@ class Orderbot:
                 # put received response onto msg stack
                 self.msg.append(response)
                 self.order = order
+                with open("order.pickle", "wb") as order_file:
+                    pickle.dump(order, order_file)
 
     # update member list on member event
     async def join_cb(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
