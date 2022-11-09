@@ -13,7 +13,7 @@ class Participant(Base):
     matrix_address = Column(String, unique=True)
     user_total = Column(Integer, default=0)
     cuts = relationship('Cuts', backref='participants', lazy=True, cascade="all,delete-orphan")
-    is_active = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
 
 
 class DB_Order(Base):
