@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DATETIME, ForeignKey, create_engine
+from sqlalchemy import Column, Integer, String, DATETIME, ForeignKey, create_engine, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import now
@@ -12,7 +12,8 @@ class Participant(Base):
     name = Column(String, unique=True)
     matrix_address = Column(String, unique=True)
     user_total = Column(Integer, default=0)
-    cuts = relationship('Cuts', backref='participants', lazy=True, cascade="all, delete-orphan")
+    cuts = relationship('Cuts', backref='participants', lazy=True, cascade="all,delete-orphan")
+    is_active = Column(Boolean, default=False)
 
 
 class DB_Order(Base):
