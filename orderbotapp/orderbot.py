@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import logging as log
 import os
 import pickle
@@ -12,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 import order_parser
 from db_classes import setup_db
+from order import order_version
 
 log.basicConfig(format="%(levelname)s|%(asctime)s: %(message)s", level=log.DEBUG)
 
@@ -57,7 +57,13 @@ class Orderbot:
         # load prev. order
         if exists("order.pickle"):
             with open("order.pickle", "rb") as order_file:
-                self.order = pickle.load(order_file)
+                order = pickle.load(order_file)
+                if order_version and order.version and order.version == order_version:
+                    self.order = order
+                    log.debug(f"loaded order: {self.order}")
+                else:
+                    log.debug("order version mismatch")
+                    os.remove("order.pickle")
 
         # add callback for Messages/Member events
         self.client.add_event_callback(self.message_cb, RoomMessageText)
@@ -151,8 +157,14 @@ class Orderbot:
                 # put received response onto msg stack
                 self.msg.append(response)
                 self.order = order
-                with open("order.pickle", "wb") as order_file:
-                    pickle.dump(order, order_file)
+                if order:
+                    with open("order.pickle", "wb") as order_file:
+                        pickle.dump(order, order_file)
+                        log.debug("dumped order")
+                else:
+                    if exists("order.pickle"):
+                        os.remove("order.pickle")
+                        log.debug("deleted order")
 
     # update member list on member event
     async def join_cb(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
