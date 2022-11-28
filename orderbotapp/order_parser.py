@@ -125,7 +125,8 @@ def update_part(pid: int, cut: int, session: Session) -> None:
 
 
 def set_recommended_payers(order: Order, session: Session) -> None:
-    user = session.query(Participant).where(Participant.is_active.is_(True)).filter(Participant.name.in_(order.order.keys())).order_by(Participant.user_total).first()
+    user = session.query(Participant).where(Participant.is_active.is_(True)).filter(
+        Participant.name.in_(order.order.keys())).order_by(Participant.user_total).first()
     if user:
         order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
 
@@ -139,7 +140,7 @@ def find_match_in_database(name, session: Session) -> Participant:
     return cur_user
 
 
-def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: List[str]) -> (Order, str):
+def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: Dict[str, str]) -> (Order, str):
     def add(namespace: Dict[str, Any]) -> (Order, str):
         order_to_return = order
         msg = ""
@@ -344,7 +345,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return order, f"Added {cent_to_euro(bal)} to {cur_user.name.title()}'s balance"
 
     def balance(*_) -> (Order, str):
-        all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).where(Participant.is_active.is_(True)).order_by(
+        all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).where(
+            Participant.is_active.is_(True)).order_by(
             Participant.user_total.desc()).all()
         if not all_balance:
             return order, "no participants (yet)"
@@ -359,50 +361,62 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return order, msg
 
     def join(namespace: Dict[str, Any]) -> (Order, str):
+        users = [user.matrix_address for user in session.query(Participant).all()]
+        user_names = [user.name for user in session.query(Participant).all()]
+        added_users = []
         if namespace["all"]:
-            users = [user.matrix_address for user in session.query(Participant).all()]
-            user_names = [user.name for user in session.query(Participant).all()]
-            added_users = []
-            for user in members:
-                if user not in users and members[user].lower() not in user_names and "orderbot" not in user.lower():
-                    # case 1: user name not yet taken, user matrix address not yet taken
-                    session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
-                    added_users.append(user)
-                elif user not in users and "orderbot" not in user.lower() and members[user].lower() in user_names:
-                    # case 2: username already taken
-                    taken_username = session.query(Participant).where(Participant.name == members[user].lower()).first()
-                    # case 2.1: user has not set a matrix address yet
-                    if taken_username.matrix_address is None:
-                        session.execute(
-                            update(Participant).where(Participant.name == members[user].lower())
-                            .values(matrix_address=user.lower())
-                        )
-                        added_users.append(user)
-                    else:
-                        # case 2.2: user has already registered with a different matrix address
-                        session.add(Participant(matrix_address=user.lower(), name=members[user].lower() + user.lower()))
-            session.commit()
-            if not added_users:
-                ret = "No new users added"
-            else:
-                ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users])
-            return order, ret
+            to_add = members
         else:
-            user = session.query(Participant).where(Participant.matrix_address == sender.lower()).all()
-            username = session.query(Participant).where(Participant.name == members[sender].lower()).all()
-            if user:
-                return order, "User already registered"
-            else:
-                session.add(Participant(matrix_address=sender.lower(), name=members[sender].lower()))
-                session.commit()
-                return order, f"Added {members[sender].title()} ({sender.title()})"
+            to_add = {sender: members[sender]}
+
+        for user in to_add:
+            # case 0: orderbot
+            if "orderbot" in user.lower():
+                continue
+            if user not in users and members[user].lower() not in user_names:
+            # case 1: user name not yet taken, user matrix address not yet taken
+                session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
+                added_users.append(user)
+            elif user not in users and members[user].lower() in user_names:
+            # case 2: username already taken,
+                taken_username = session.query(Participant).where(Participant.name == members[user].lower()).first()
+            # case 2.1: user has not set a matrix address yet
+                if taken_username.matrix_address is None:
+                    session.execute(
+                        update(Participant).where(Participant.name == members[user].lower())
+                        .values(matrix_address=user.lower())
+                    )
+                    added_users.append(user)
+            # case 2.2: account was inactive
+                elif not taken_username.is_active:
+                    session.execute(
+                        update(Participant).where(Participant.name == members[user].lower())
+                        .values(is_active=True, matrix_address=user.lower())
+                    )
+                    added_users.append(user)
+            # case 3: :shrug:
+                else:
+                    return order, f"User {members[user].title()} already registered with matrix address {taken_username.matrix_address}"
+        session.commit()
+        if not added_users:
+            ret = "No new users added"
+        else:
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users])
+        return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         address_user = session.query(Participant).where(
-            Participant.name == name).all()
-        if address_user:
-            return order, "User already registered"
+            Participant.name == name).first()
+        if address_user and address_user.is_active:
+            return order, "User already registered and active"
+        elif address_user and address_user.is_active is False:
+            session.execute(
+                update(Participant).where(Participant.name == name)
+                .values(is_active=True, matrix_address=None)
+            )
+            session.commit()
+            return order, f"User {name.title()} reactivated"
         else:
             session.add(Participant(name=name))
             session.commit()
