@@ -2,6 +2,7 @@ import argparse
 import logging
 import random
 import re
+import traceback
 from decimal import Decimal, ROUND_HALF_DOWN
 
 from sqlalchemy import or_, update, and_
@@ -30,6 +31,7 @@ cmd = [
     "suggest",
     "init",
     "deinit",
+    "transfer",
 ]
 
 
@@ -131,12 +133,17 @@ def set_recommended_payers(order: Order, session: Session) -> None:
         order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
 
 
-def find_match_in_database(name, session: Session) -> Participant:
+def find_match_in_database(name, session: Session, active:bool = False) -> Participant:
     handle = re.match(r"@(\S+):\S+\.\S+", name)
     if handle:
         cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
     else:
         cur_user = session.query(Participant).where(Participant.name == name).first()
+    if active:
+        if cur_user and cur_user.is_active:
+            return cur_user
+        else:
+            return None
     return cur_user
 
 
@@ -332,7 +339,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     def add_money(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
-        cur_user = find_match_in_database(name, session)
+        cur_user = find_match_in_database(name, session, True)
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
@@ -467,7 +474,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     def init(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
-        cur_user = find_match_in_database(name, session)
+        cur_user = find_match_in_database(name, session, True)
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
@@ -487,7 +494,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             cur_user = session.query(Participant).where(Participant.matrix_address == sender.lower()).first()
         else:
             name = " ".join(namespace["name"]).lower()
-            cur_user = find_match_in_database(name, session)
+            cur_user = find_match_in_database(name, session, True)
 
         if cur_user is None:
             return order, f"User {sender.title()} not registered"
@@ -497,6 +504,31 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             cur_user.is_active = False
             session.commit()
             return order, f"User {cur_user.name.title()} left..."
+
+    def transfer(namespace: Dict[str, Any]) -> (Order, str):
+        if namespace["origin"] is None:
+            origin = sender.lower()
+        else:
+            origin = " ".join(namespace["origin"]).lower()
+        if namespace["destination"] is None:
+            return order, "No destination specified"
+
+        origin_user = find_match_in_database(origin, session, True)
+        destination_user = find_match_in_database(" ".join(namespace["destination"]).lower(), session, True)
+        if origin_user is None:
+            return order, f"User {origin.title()} not registered or inactive"
+        if destination_user is None:
+            return order, f"User {namespace['destination'].title()} not registered or inactive"
+        if namespace["amount"]:
+            amount = euro_to_cent(namespace["amount"])
+        else:
+            amount = origin_user.user_total
+        origin_user.user_total -= amount
+        destination_user.user_total += amount
+        session.commit()
+        return order, f"Transferred {cent_to_euro(amount)} from {origin_user.name.title()} to {destination_user.name.title()}"
+
+
 
     order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
     order_subparser = order_parser.add_subparsers()
@@ -551,10 +583,17 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     register_parser.set_defaults(func=register)
     register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
 
+    pay_parser = user_subparser.add_parser(cmd[17], help="Transfers money from one user to another")
+    pay_parser.set_defaults(func=transfer)
+    pay_parser.add_argument("amount", type=float, nargs= argparse.ZERO_OR_MORE, help="Amount to be transferred")
+    pay_parser.add_argument("--origin", "-o", type=str, nargs=argparse.ONE_OR_MORE, help="source")
+    pay_parser.add_argument("--destination", "-d", type=str, nargs=argparse.ONE_OR_MORE, help="destination")
+
     payout_parser = user_subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
     payout_parser.set_defaults(func=payout)
     payout_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
+    payout_parser.add_argument("--accept", "-a", action= 'store_true', help="accepts the payout, check payout command without this flag first, if unnsure\nIf suggestion is not accepted, use 'transfer' to manually balance the debt/due.")
 
     add_money_parser = user_subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
     add_money_parser.set_defaults(func=add_money)
@@ -600,6 +639,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     # eror handling for wrong input or help command
     except (SystemExit, AttributeError):
+        traceback.print_exc()
         if inp[0] in ["order", "users"]:
             if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
                 possible_parsers = [action for action in order_parser._actions if
@@ -630,3 +670,6 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     except SQLAlchemyError as e:
         logging.error(e)
         return order, "SQLAlchemy error, see logs for more info"
+
+    except Exception as e:
+        traceback.print_exc()
