@@ -2,10 +2,9 @@ import argparse
 import logging
 import random
 import re
-import traceback
 from decimal import Decimal, ROUND_HALF_DOWN
 
-from sqlalchemy import or_, update, and_, exc
+from sqlalchemy import or_, update, and_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -29,7 +28,8 @@ cmd = [
     "all",
     "reopen",
     "suggest",
-    "init"
+    "init",
+    "deinit",
 ]
 
 
@@ -125,10 +125,19 @@ def update_part(pid: int, cut: int, session: Session) -> None:
 
 
 def set_recommended_payers(order: Order, session: Session) -> None:
-    user = session.query(Participant).filter(Participant.name.in_(order.order.keys())).order_by(
-        Participant.user_total).first()
+    user = session.query(Participant).where(Participant.is_active.is_(True)).filter(Participant.name.in_(order.order.keys())).order_by(Participant.user_total).first()
     if user:
         order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
+
+
+def find_match_in_database(name, session: Session) -> Participant:
+    handle = re.match(r"@(\S+):\S+\.\S+", name)
+    if handle:
+        cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
+    else:
+        cur_user = session.query(Participant).where(Participant.name == name).first()
+    return cur_user
+
 
 def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: List[str]) -> (Order, str):
     def add(namespace: Dict[str, Any]) -> (Order, str):
@@ -322,11 +331,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     def add_money(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
-        handle = re.match(r"@(\S+):\S+\.\S+", name)
-        if handle:
-            cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
-        else:
-            cur_user = session.query(Participant).where(Participant.name == name).first()
+        cur_user = find_match_in_database(name, session)
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
@@ -339,7 +344,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return order, f"Added {cent_to_euro(bal)} to {cur_user.name.title()}'s balance"
 
     def balance(*_) -> (Order, str):
-        all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).order_by(
+        all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).where(Participant.is_active.is_(True)).order_by(
             Participant.user_total.desc()).all()
         if not all_balance:
             return order, "no participants (yet)"
@@ -348,7 +353,9 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         max_balance = max(len(str(user.user_total)) for user in all_balance) + 1
         msg = "Current balances: \n"
         msg = msg + "\n".join(
-            [f"{user.name.title():<{max_name}} ({user.matrix_address if user.matrix_address else 'None':>{max_address}}): {cent_to_euro(user.user_total):>{max_balance}}" for user in all_balance])
+            [
+                f"{user.name.title():<{max_name}} ({user.matrix_address if user.matrix_address else 'None':>{max_address}}): {cent_to_euro(user.user_total):>{max_balance}}"
+                for user in all_balance])
         return order, msg
 
     def join(namespace: Dict[str, Any]) -> (Order, str):
@@ -382,6 +389,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, ret
         else:
             user = session.query(Participant).where(Participant.matrix_address == sender.lower()).all()
+            username = session.query(Participant).where(Participant.name == members[sender].lower()).all()
             if user:
                 return order, "User already registered"
             else:
@@ -445,11 +453,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     def init(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
-        handle = re.match(r"@(\S+):\S+\.\S+", name)
-        if handle:
-            cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
-        else:
-            cur_user = session.query(Participant).where(Participant.name == name).first()
+        cur_user = find_match_in_database(name, session)
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
@@ -464,6 +468,21 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
 
+    def deinit(namespace: Dict[str, Any]) -> (Order, str):
+        if namespace["self"]:
+            cur_user = session.query(Participant).where(Participant.matrix_address == sender.lower()).first()
+        else:
+            name = " ".join(namespace["name"]).lower()
+            cur_user = find_match_in_database(name, session)
+
+        if cur_user is None:
+            return order, f"User {sender.title()} not registered"
+        elif cur_user.user_total != 0:
+            return order, f"Balance of {cur_user.name.title()} is {cent_to_euro(cur_user.user_total)}"
+        elif cur_user.user_total == 0:
+            cur_user.is_active = False
+            session.commit()
+            return order, f"User {cur_user.name.title()} left..."
 
     order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
     order_subparser = order_parser.add_subparsers()
@@ -554,6 +573,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="name of user")
     init_parser.add_argument("balance", type=float, help="balance")
 
+    deinit_parser = user_subparser.add_parser(cmd[16], help="deinitializes user, if balance is zero")
+    deinit_parser.set_defaults(func=deinit)
+    deinit_parser.add_argument("--self", "-s", action='store_true', help="deinitializes messenger")
+    deinit_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, type=str, help="name of user")
 
     try:
         args = main_parser.parse_args(inp)
@@ -590,6 +613,6 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, main_parser.format_help()
 
     # error handling for database errors
-    except exc.SQLAlchemyError as e:
+    except SQLAlchemyError as e:
         logging.error(e)
         return order, "SQLAlchemy error, see logs for more info"
