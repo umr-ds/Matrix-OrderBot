@@ -145,7 +145,7 @@ class Orderbot:
 
                 # empty msg
                 if not single_line:
-                    return
+                    single_line = "-h"
 
                 if not self.members:
                     log.debug("getting members")
