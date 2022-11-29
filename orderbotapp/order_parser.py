@@ -5,7 +5,7 @@ import re
 import traceback
 from decimal import Decimal, ROUND_HALF_DOWN
 
-from sqlalchemy import or_, update, and_, exc
+from sqlalchemy import or_, update, and_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,9 @@ cmd = [
     "all",
     "reopen",
     "suggest",
-    "init"
+    "init",
+    "deinit",
+    "transfer",
 ]
 
 
@@ -125,12 +127,27 @@ def update_part(pid: int, cut: int, session: Session) -> None:
 
 
 def set_recommended_payers(order: Order, session: Session) -> None:
-    user = session.query(Participant).filter(Participant.name.in_(order.order.keys())).order_by(
-        Participant.user_total).first()
+    user = session.query(Participant).where(Participant.is_active.is_(True)).filter(
+        Participant.name.in_(order.order.keys())).order_by(Participant.user_total).first()
     if user:
         order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
 
-def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: List[str]) -> (Order, str):
+
+def find_match_in_database(name, session: Session, active:bool = False) -> Participant:
+    handle = re.match(r"@(\S+):\S+\.\S+", name)
+    if handle:
+        cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
+    else:
+        cur_user = session.query(Participant).where(Participant.name == name).first()
+    if active:
+        if cur_user and cur_user.is_active:
+            return cur_user
+        else:
+            return None
+    return cur_user
+
+
+def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: Dict[str, str]) -> (Order, str):
     def add(namespace: Dict[str, Any]) -> (Order, str):
         order_to_return = order
         msg = ""
@@ -245,7 +262,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         name = cur_user.name
         if debt != 0:
             if debt > 0:
-                all_user = session.query(Participant).where(Participant.user_total < 0).order_by(
+                all_user = session.query(Participant).where(and_(Participant.user_total < 0, Participant.is_active) ).order_by(
                     Participant.user_total.asc()).all()
                 if not all_user:
                     return order, "all debtors"
@@ -259,30 +276,44 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 for user in all_user_subset:
                     user_bal = user.user_total
                     change = min(user_bal + debt, 0)
-                    diffs.append((user.name, user_bal - change))
-                    session.execute(
-                        update(Participant).where(Participant.pid == user.pid)
-                        .values(user_total=change)
-                    )
+                    diffs.append((user, user_bal - change))
+
                     debt = max(debt + user_bal, 0)
                 session.commit()
                 if debt > 0:
-                    session.execute(
-                        update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                        .values(user_total=debt)
-                    )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
-                session.execute(
-                    update(Participant).where(Participant.pid == cur_user.pid)
-                    .values(user_total=0)
-                )
-                session.commit()
-                return order, f"{name.title()} receives from <=\n" + "\n".join(
-                    f"{item[0].title()} : {cent_to_euro(- item[1])}" for item in diffs)
+
+                # formatting stuff
+                max_name_len = max(len(item[0].name) for item in diffs)
+
+                if namespace["accept"]:
+                    for diff in diffs:
+                        user = diff[0]
+                        user_diff = diff[1]
+                        user_bal = user.user_total
+                        session.execute(
+                            update(Participant).where(Participant.pid == user.pid)
+                            .values(user_total= user_bal - user_diff)
+                        )
+                        cut = Cuts(pid=user.pid, cut= - user_diff, name="payout from " + str(cur_user.pid))
+                        session.add(cut)
+
+                    cut = Cuts(pid=cur_user.pid, cut=-cur_user.user_total, name="payout")
+                    session.add(cut)
+                    session.execute(
+                        update(Participant).where(Participant.pid == cur_user.pid)
+                        .values(user_total=0)
+                    )
+                    session.commit()
+                    return order, f"{name.title()} receives from <=\n" + "\n".join(
+                        f"{item[0].name.title():<{max_name_len}}: {cent_to_euro(- item[1])}" for item in diffs)
+                else:
+                    return order, f"possible transactions:\n{name.title()} receives from <=\n" + "\n".join(
+                        f"{item[0].name.title():<{max_name_len }}: {cent_to_euro(- item[1])}" for item in diffs)
 
             elif debt < 0:
-                all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
+                all_user = session.query(Participant).where(and_(Participant.user_total > 0, Participant.is_active)).order_by(
                     Participant.user_total.desc()).all()
                 if not all_user:
                     return order, "all in debt"
@@ -296,37 +327,46 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 for user in all_user_subset:
                     user_bal = user.user_total
                     change = max(user_bal + debt, 0)
-                    diffs.append((user.name, user_bal - change))
+                    diffs.append((user, user_bal - change))
                     debt = min(debt + user_bal, 0)
-                    session.execute(
-                        update(Participant).where(Participant.pid == user.pid)
-                        .values(user_total=change)
-                    )
-                session.commit()
                 if debt < 0:
-                    session.execute(
-                        update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                        .values(user_total=debt)
-                    )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
-                session.execute(
-                    update(Participant).where(Participant.pid == cur_user.pid)
-                    .values(user_total=0)
-                )
-                session.commit()
-                return order, f"{name.title()} pay => \n" + "\n".join(
-                    f"{item[0].title()} : {cent_to_euro(item[1])}" for item in diffs)
+
+
+                # formatting stuff
+                max_name_len = max(len(item[0].name) for item in diffs)
+
+                if namespace["accept"]:
+                    for diff in diffs:
+                        user = diff[0]
+                        user_diff = diff[1]
+                        user_bal = user.user_total
+                        session.execute(
+                            update(Participant).where(Participant.pid == user.pid)
+                            .values(user_total=user_bal - user_diff)
+                        )
+                        cut = Cuts(pid=user.pid, cut=-user_diff, name="payout from " + str(cur_user.pid))
+                        session.add(cut)
+
+                    cut = Cuts(pid=cur_user.pid, cut=--cur_user.user_total, name="payout")
+                    session.add(cut)
+                    session.execute(
+                        update(Participant).where(Participant.pid == cur_user.pid)
+                        .values(user_total=0)
+                    )
+                    session.commit()
+                    return order, f"{name.title()} pays to =>\n" + "\n".join(
+                        f"{item[0].name.title():<{max_name_len}}: {cent_to_euro(item[1])}" for item in diffs)
+
+                return order, f"possible transactions:\n{name.title()} pay => \n" + "\n".join(
+                    f"{item[0].name.title():<{max_name_len }}: {cent_to_euro(item[1])}" for item in diffs)
         else:
             return order, "Nothing to payout"
 
     def add_money(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
-        handle = re.match(r"@(\S+):\S+\.\S+", name)
-        if handle:
-            cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
-        else:
-            cur_user = session.query(Participant).where(Participant.name == name).first()
+        cur_user = find_match_in_database(name, session, True)
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
@@ -339,7 +379,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return order, f"Added {cent_to_euro(bal)} to {cur_user.name.title()}'s balance"
 
     def balance(*_) -> (Order, str):
-        all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).order_by(
+        all_balance = session.query(Participant.name, Participant.matrix_address, Participant.user_total).where(
+            Participant.is_active.is_(True)).order_by(
             Participant.user_total.desc()).all()
         if not all_balance:
             return order, "no participants (yet)"
@@ -348,53 +389,68 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         max_balance = max(len(str(user.user_total)) for user in all_balance) + 1
         msg = "Current balances: \n"
         msg = msg + "\n".join(
-            [f"{user.name.title():<{max_name}} ({user.matrix_address if user.matrix_address else 'None':>{max_address}}): {cent_to_euro(user.user_total):>{max_balance}}" for user in all_balance])
+            [
+                f"{user.name.title():<{max_name}} ({user.matrix_address if user.matrix_address else 'None':>{max_address}}): {cent_to_euro(user.user_total):>{max_balance}}"
+                for user in all_balance])
         return order, msg
 
     def join(namespace: Dict[str, Any]) -> (Order, str):
+        users = [user.matrix_address for user in session.query(Participant).all()]
+        user_names = [user.name for user in session.query(Participant).all()]
+        added_users = []
         if namespace["all"]:
-            users = [user.matrix_address for user in session.query(Participant).all()]
-            user_names = [user.name for user in session.query(Participant).all()]
-            added_users = []
-            for user in members:
-                if user not in users and members[user].lower() not in user_names and "orderbot" not in user.lower():
-                    # case 1: user name not yet taken, user matrix address not yet taken
-                    session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
-                    added_users.append(user)
-                elif user not in users and "orderbot" not in user.lower() and members[user].lower() in user_names:
-                    # case 2: username already taken
-                    taken_username = session.query(Participant).where(Participant.name == members[user].lower()).first()
-                    # case 2.1: user has not set a matrix address yet
-                    if taken_username.matrix_address is None:
-                        session.execute(
-                            update(Participant).where(Participant.name == members[user].lower())
-                            .values(matrix_address=user.lower())
-                        )
-                        added_users.append(user)
-                    else:
-                        # case 2.2: user has already registered with a different matrix address
-                        session.add(Participant(matrix_address=user.lower(), name=members[user].lower() + user.lower()))
-            session.commit()
-            if not added_users:
-                ret = "No new users added"
-            else:
-                ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users])
-            return order, ret
+            to_add = members
         else:
-            user = session.query(Participant).where(Participant.matrix_address == sender.lower()).all()
-            if user:
-                return order, "User already registered"
-            else:
-                session.add(Participant(matrix_address=sender.lower(), name=members[sender].lower()))
-                session.commit()
-                return order, f"Added {members[sender].title()} ({sender.title()})"
+            to_add = {sender: members[sender]}
+
+        for user in to_add:
+            # case 0: orderbot
+            if "orderbot" in user.lower():
+                continue
+            if user not in users and members[user].lower() not in user_names:
+            # case 1: user name not yet taken, user matrix address not yet taken
+                session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
+                added_users.append(user)
+            elif user not in users and members[user].lower() in user_names:
+            # case 2: username already taken,
+                taken_username = session.query(Participant).where(Participant.name == members[user].lower()).first()
+            # case 2.1: user has not set a matrix address yet
+                if taken_username.matrix_address is None:
+                    session.execute(
+                        update(Participant).where(Participant.name == members[user].lower())
+                        .values(matrix_address=user.lower())
+                    )
+                    added_users.append(user)
+            # case 2.2: account was inactive
+                elif not taken_username.is_active:
+                    session.execute(
+                        update(Participant).where(Participant.name == members[user].lower())
+                        .values(is_active=True, matrix_address=user.lower())
+                    )
+                    added_users.append(user)
+            # case 3: :shrug:
+                else:
+                    return order, f"User {members[user].title()} already registered with matrix address {taken_username.matrix_address}"
+        session.commit()
+        if not added_users:
+            ret = "No new users added"
+        else:
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users])
+        return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         address_user = session.query(Participant).where(
-            Participant.name == name).all()
-        if address_user:
-            return order, "User already registered"
+            Participant.name == name).first()
+        if address_user and address_user.is_active:
+            return order, "User already registered and active"
+        elif address_user and address_user.is_active is False:
+            session.execute(
+                update(Participant).where(Participant.name == name)
+                .values(is_active=True, matrix_address=None)
+            )
+            session.commit()
+            return order, f"User {name.title()} reactivated"
         else:
             session.add(Participant(name=name))
             session.commit()
@@ -445,11 +501,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     def init(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
-        handle = re.match(r"@(\S+):\S+\.\S+", name)
-        if handle:
-            cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
-        else:
-            cur_user = session.query(Participant).where(Participant.name == name).first()
+        cur_user = find_match_in_database(name, session, True)
         if cur_user is None:
             return order, f"User {name.title()} not registered"
         bal = euro_to_cent(namespace["balance"])
@@ -463,6 +515,46 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, f"Set init balance for {cur_user.name.title()} to {cent_to_euro(bal)}"
         else:
             return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
+
+    def deinit(namespace: Dict[str, Any]) -> (Order, str):
+        if namespace["self"]:
+            cur_user = session.query(Participant).where(Participant.matrix_address == sender.lower()).first()
+        else:
+            name = " ".join(namespace["name"]).lower()
+            cur_user = find_match_in_database(name, session, True)
+
+        if cur_user is None:
+            return order, f"User {sender.title()} not registered"
+        elif cur_user.user_total != 0:
+            return order, f"Balance of {cur_user.name.title()} is {cent_to_euro(cur_user.user_total)}"
+        elif cur_user.user_total == 0:
+            cur_user.is_active = False
+            session.commit()
+            return order, f"User {cur_user.name.title()} left..."
+
+    def transfer(namespace: Dict[str, Any]) -> (Order, str):
+        if namespace["origin"] is None:
+            origin = sender.lower()
+        else:
+            origin = " ".join(namespace["origin"]).lower()
+        if namespace["destination"] is None:
+            return order, "No destination specified"
+
+        origin_user = find_match_in_database(origin, session, True)
+        destination_user = find_match_in_database(" ".join(namespace["destination"]).lower(), session, True)
+        if origin_user is None:
+            return order, f"User {origin.title()} not registered or inactive"
+        if destination_user is None:
+            return order, f"User {namespace['destination'].title()} not registered or inactive"
+        if namespace["amount"]:
+            amount = euro_to_cent(namespace["amount"])
+        else:
+            amount = origin_user.user_total
+        origin_user.user_total -= amount
+        destination_user.user_total += amount
+        session.commit()
+        return order, f"Transferred {cent_to_euro(amount)} from {origin_user.name.title()} to {destination_user.name.title()}"
+
 
 
     order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
@@ -518,10 +610,17 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     register_parser.set_defaults(func=register)
     register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
 
+    pay_parser = user_subparser.add_parser(cmd[17], help="Transfers money from one user to another")
+    pay_parser.set_defaults(func=transfer)
+    pay_parser.add_argument("amount", type=float, nargs= argparse.ZERO_OR_MORE, help="Amount to be transferred")
+    pay_parser.add_argument("--origin", "-o", type=str, nargs=argparse.ONE_OR_MORE, help="source")
+    pay_parser.add_argument("--destination", "-d", type=str, nargs=argparse.ONE_OR_MORE, help="destination")
+
     payout_parser = user_subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
     payout_parser.set_defaults(func=payout)
     payout_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
+    payout_parser.add_argument("--accept", "-a", action= 'store_true', help="accepts the payout, check payout command without this flag first, if unnsure\nIf suggestion is not accepted, use 'transfer' to manually balance the debt/due.")
 
     add_money_parser = user_subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
     add_money_parser.set_defaults(func=add_money)
@@ -554,6 +653,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="name of user")
     init_parser.add_argument("balance", type=float, help="balance")
 
+    deinit_parser = user_subparser.add_parser(cmd[16], help="deinitializes user, if balance is zero")
+    deinit_parser.set_defaults(func=deinit)
+    deinit_parser.add_argument("--self", "-s", action='store_true', help="deinitializes messenger")
+    deinit_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, type=str, help="name of user")
 
     try:
         args = main_parser.parse_args(inp)
@@ -563,6 +666,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     # eror handling for wrong input or help command
     except (SystemExit, AttributeError):
+        traceback.print_exc()
         if inp[0] in ["order", "users"]:
             if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
                 possible_parsers = [action for action in order_parser._actions if
@@ -590,6 +694,6 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, main_parser.format_help()
 
     # error handling for database errors
-    except exc.SQLAlchemyError as e:
+    except SQLAlchemyError as e:
         logging.error(e)
-        return order, "SQLAlchemy error, see logs for more info"
+
