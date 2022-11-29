@@ -4,6 +4,7 @@ import random
 import re
 import traceback
 from decimal import Decimal, ROUND_HALF_DOWN
+from pprint import pprint
 
 from sqlalchemy import or_, update, and_
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,6 +33,7 @@ cmd = [
     "init",
     "deinit",
     "transfer",
+    "reorder",
 ]
 
 
@@ -110,14 +112,6 @@ def no_active_order() -> (Order, str):
     return None, "start an order first!"
 
 
-def check_name_in_db(name: str, session: Session) -> Participant:
-    return session.query(Participant).where(Participant.name == name.lower()).first()
-
-
-def check_address_in_db(address: str, session: Session) -> Participant:
-    return session.query(Participant).where(Participant.matrix_address == address.lower()).first()
-
-
 def update_part(pid: int, cut: int, session: Session) -> None:
     session.execute(
         update(Participant).where(Participant.pid == pid)
@@ -149,16 +143,17 @@ def find_match_in_database(name, session: Session, active:bool = False) -> Parti
 
 def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: Dict[str, str]) -> (Order, str):
     def add(namespace: Dict[str, Any]) -> (Order, str):
+        logging.debug(namespace)
         order_to_return = order
         msg = ""
         price = euro_to_cent(namespace['price'])
         if namespace["name"] is None:
-            p = check_address_in_db(sender, session)
+            p = find_match_in_database(sender, session, active=True)
             if not p:
                 return order, "Register user first with !ob join"
             name = p.name
         else:
-            p = check_name_in_db(namespace["name"], session)
+            p = find_match_in_database(namespace["name"], session, active=True)
             if not p:
                 return order, "Register user first with !ob register <name>"
             name = p.name
@@ -227,12 +222,12 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         if order is None:
             return no_active_order()
         if namespace["name"] is None:
-            p = check_address_in_db(sender, session)
+            p = find_match_in_database(sender, session, active=True)
             if not p:
                 return order, "Register user first with !ob join"
             name = p.name
         else:
-            p = check_name_in_db(" ".join(namespace["name"]), session)
+            p = find_match_in_database(" ".join(namespace["name"]), session, active=True)
             if not p:
                 return order, "Register user first with !ob register <name>"
             name = p.name
@@ -248,14 +243,37 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             return order, f"amount must be greater than {cent_to_euro(order.price + order.tip)}"
 
+    def reorder(namespace: Dict[str, Any]) -> (Order, str):
+        if order is None:
+            return order, "Start new order first"
+        if not namespace["name"]:
+            cur_user = find_match_in_database(sender, session, active=True)
+        else:
+            cur_user = find_match_in_database(" ".join(namespace["name"]).lower(), session)
+        if cur_user is None:
+            return order, "User not found"
+
+        # order: order, Cuts, Participants
+        last_order = session.query(DB_Order, Cuts, Participant).join(Cuts, Cuts.oid == DB_Order.oid).join(Participant, Cuts.pid == Participant.pid)\
+            .filter(Participant.name == cur_user.name).filter(and_(Cuts.name != "paid amount", Cuts.name != "tip")).order_by(DB_Order.oid.desc()).first()
+        if last_order is None:
+            return order, "No previous order found"
+        else:
+            namespace["name"] = cur_user.name
+            namespace["order name"] = last_order.Cuts.name.split(" ")
+            namespace["price"] = float(cent_to_euro(last_order.Cuts.cut))
+            return add(namespace)
+
+
+
     def payout(namespace: Dict[str, Any]) -> (Order, str):
         if namespace["name"] is None:
-            cur_user = check_address_in_db(sender, session)
+            cur_user = find_match_in_database(sender, session, active=True)
             if not cur_user:
                 return order, "User not registered"
         else:
             name = " ".join(namespace["name"]).lower()
-            cur_user = check_name_in_db(name, session)
+            cur_user = find_match_in_database(name, session, active=True)
             if not cur_user:
                 return order, "User not registered"
         debt = cur_user.user_total
@@ -603,6 +621,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     reopen_parser = order_subparser.add_parser(cmd[13])  # help="reopens last order, if no current order"
     reopen_parser.set_defaults(func=reopen)
 
+    reorder_parser = order_subparser.add_parser(cmd[18], help="reorders last order")
+    reorder_parser.set_defaults(func=reorder)
+    reorder_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE)
+
     user_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
     user_subparser = user_parser.add_subparsers()
 
@@ -614,7 +636,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     pay_parser.set_defaults(func=transfer)
     pay_parser.add_argument("amount", type=float, nargs= argparse.ZERO_OR_MORE, help="Amount to be transferred")
     pay_parser.add_argument("--origin", "-o", type=str, nargs=argparse.ONE_OR_MORE, help="source")
-    pay_parser.add_argument("--destination", "-d", type=str, nargs=argparse.ONE_OR_MORE, help="destination")
+    pay_parser.add_argument("destination", type=str, nargs=argparse.ONE_OR_MORE, help="destination")
 
     payout_parser = user_subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
     payout_parser.set_defaults(func=payout)
