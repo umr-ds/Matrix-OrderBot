@@ -262,7 +262,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         name = cur_user.name
         if debt != 0:
             if debt > 0:
-                all_user = session.query(Participant).where(Participant.user_total < 0).order_by(
+                all_user = session.query(Participant).where(and_(Participant.user_total < 0, Participant.is_active) ).order_by(
                     Participant.user_total.asc()).all()
                 if not all_user:
                     return order, "all debtors"
@@ -276,30 +276,44 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 for user in all_user_subset:
                     user_bal = user.user_total
                     change = min(user_bal + debt, 0)
-                    diffs.append((user.name, user_bal - change))
-                    session.execute(
-                        update(Participant).where(Participant.pid == user.pid)
-                        .values(user_total=change)
-                    )
+                    diffs.append((user, user_bal - change))
+
                     debt = max(debt + user_bal, 0)
                 session.commit()
                 if debt > 0:
-                    session.execute(
-                        update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                        .values(user_total=debt)
-                    )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
-                session.execute(
-                    update(Participant).where(Participant.pid == cur_user.pid)
-                    .values(user_total=0)
-                )
-                session.commit()
-                return order, f"{name.title()} receives from <=\n" + "\n".join(
-                    f"{item[0].title()} : {cent_to_euro(- item[1])}" for item in diffs)
+
+                # formatting stuff
+                max_name_len = max(len(item[0].name) for item in diffs)
+
+                if namespace["accept"]:
+                    for diff in diffs:
+                        user = diff[0]
+                        user_diff = diff[1]
+                        user_bal = user.user_total
+                        session.execute(
+                            update(Participant).where(Participant.pid == user.pid)
+                            .values(user_total= user_bal - user_diff)
+                        )
+                        cut = Cuts(pid=user.pid, cut= - user_diff, name="payout from " + str(cur_user.pid))
+                        session.add(cut)
+
+                    cut = Cuts(pid=cur_user.pid, cut=-cur_user.user_total, name="payout")
+                    session.add(cut)
+                    session.execute(
+                        update(Participant).where(Participant.pid == cur_user.pid)
+                        .values(user_total=0)
+                    )
+                    session.commit()
+                    return order, f"{name.title()} receives from <=\n" + "\n".join(
+                        f"{item[0].name.title():<{max_name_len}}: {cent_to_euro(- item[1])}" for item in diffs)
+                else:
+                    return order, f"possible transactions:\n{name.title()} receives from <=\n" + "\n".join(
+                        f"{item[0].name.title():<{max_name_len }}: {cent_to_euro(- item[1])}" for item in diffs)
 
             elif debt < 0:
-                all_user = session.query(Participant).where(Participant.user_total > 0).order_by(
+                all_user = session.query(Participant).where(and_(Participant.user_total > 0, Participant.is_active)).order_by(
                     Participant.user_total.desc()).all()
                 if not all_user:
                     return order, "all in debt"
@@ -313,27 +327,40 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 for user in all_user_subset:
                     user_bal = user.user_total
                     change = max(user_bal + debt, 0)
-                    diffs.append((user.name, user_bal - change))
+                    diffs.append((user, user_bal - change))
                     debt = min(debt + user_bal, 0)
-                    session.execute(
-                        update(Participant).where(Participant.pid == user.pid)
-                        .values(user_total=change)
-                    )
-                session.commit()
                 if debt < 0:
-                    session.execute(
-                        update(Participant).where(Participant.pid == all_user_subset[0].pid)
-                        .values(user_total=debt)
-                    )
                     tup = diffs[0]
                     diffs[0] = (tup[0], tup[1] - debt)
-                session.execute(
-                    update(Participant).where(Participant.pid == cur_user.pid)
-                    .values(user_total=0)
-                )
-                session.commit()
-                return order, f"{name.title()} pay => \n" + "\n".join(
-                    f"{item[0].title()} : {cent_to_euro(item[1])}" for item in diffs)
+
+
+                # formatting stuff
+                max_name_len = max(len(item[0].name) for item in diffs)
+
+                if namespace["accept"]:
+                    for diff in diffs:
+                        user = diff[0]
+                        user_diff = diff[1]
+                        user_bal = user.user_total
+                        session.execute(
+                            update(Participant).where(Participant.pid == user.pid)
+                            .values(user_total=user_bal - user_diff)
+                        )
+                        cut = Cuts(pid=user.pid, cut=-user_diff, name="payout from " + str(cur_user.pid))
+                        session.add(cut)
+
+                    cut = Cuts(pid=cur_user.pid, cut=--cur_user.user_total, name="payout")
+                    session.add(cut)
+                    session.execute(
+                        update(Participant).where(Participant.pid == cur_user.pid)
+                        .values(user_total=0)
+                    )
+                    session.commit()
+                    return order, f"{name.title()} pays to =>\n" + "\n".join(
+                        f"{item[0].name.title():<{max_name_len}}: {cent_to_euro(item[1])}" for item in diffs)
+
+                return order, f"possible transactions:\n{name.title()} pay => \n" + "\n".join(
+                    f"{item[0].name.title():<{max_name_len }}: {cent_to_euro(item[1])}" for item in diffs)
         else:
             return order, "Nothing to payout"
 
@@ -669,7 +696,4 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     # error handling for database errors
     except SQLAlchemyError as e:
         logging.error(e)
-        return order, "SQLAlchemy error, see logs for more info"
 
-    except Exception as e:
-        traceback.print_exc()
