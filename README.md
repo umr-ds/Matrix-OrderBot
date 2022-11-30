@@ -17,7 +17,7 @@ MPASSWORD=
 ## Usage
 
 Invite the bot into a room (it will auto-join). Start commands with `!ob`. 
-Using `--help` or `-h` displays the help message for the used command.
+Using `--help` or `-h` displays the help message for any command.
 
 ### Commands
 
