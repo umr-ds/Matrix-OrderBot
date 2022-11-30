@@ -3,6 +3,7 @@ import logging as log
 import os
 import pickle
 import shlex
+
 from os.path import exists
 
 from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError, MatrixRoom, Event
