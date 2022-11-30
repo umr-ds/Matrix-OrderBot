@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from db_classes import Participant, Cuts, DB_Order
 from order import Order
-from orderbotapp.orderbot import loglevel
-from orderbotapp.util import cent_to_euro, euro_to_cent, save_order_in_db, no_active_order, set_recommended_payers, \
+from orderbot import loglevel
+from util import cent_to_euro, euro_to_cent, save_order_in_db, no_active_order, set_recommended_payers, \
     find_match_in_database, get_last_k_orders
 
 cmd = [
@@ -337,17 +337,25 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         users = [user.matrix_address for user in session.query(Participant).all()]
         user_names = [user.name for user in session.query(Participant).all()]
         added_users = []
+        logging.debug(f"users: {users}")
+        logging.debug(f"user_names: {user_names}")
         if namespace["all"]:
             to_add = members
         else:
             to_add = {sender: members[sender]}
 
+        logging.debug(f"to_add: {to_add}")
+
         for user in to_add:
+            user = user.lower()
+            logging.debug(f"adding user: {user}")
             # case 0: orderbot
             if "orderbot" in user.lower():
+                logging.debug("orderbot")
                 continue
             if user not in users and members[user].lower() not in user_names:
                 # case 1: user name not yet taken, user matrix address not yet taken
+                logging.debug(f"case 1: {user}")
                 session.add(Participant(matrix_address=user.lower(), name=members[user].lower()))
                 added_users.append(user)
             elif user not in users and members[user].lower() in user_names:
@@ -355,6 +363,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 taken_username = session.query(Participant).where(Participant.name == members[user].lower()).first()
                 # case 2.1: user has not set a matrix address yet
                 if taken_username.matrix_address is None:
+                    logging.debug(f"case 2.1: {user}")
                     session.execute(
                         update(Participant).where(Participant.name == members[user].lower())
                         .values(matrix_address=user.lower())
@@ -362,14 +371,25 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                     added_users.append(user)
                 # case 2.2: account was inactive
                 elif not taken_username.is_active:
+                    logging.debug(f"case 2.2: {user}")
                     session.execute(
                         update(Participant).where(Participant.name == members[user].lower())
                         .values(is_active=True, matrix_address=user.lower())
                     )
                     added_users.append(user)
-                # case 3: :shrug:
-                else:
-                    return order, f"User {members[user].title()} already registered with matrix address {taken_username.matrix_address}"
+
+            elif user in users and members[user].lower() in user_names:
+                # case 3: user name and matrix address already taken
+                logging.debug(f"case 4: {user}")
+                potential_user = session.query(Participant).where(
+                    and_(Participant.name == members[user].lower(), Participant.matrix_address == user.lower())).first()
+                if potential_user and not potential_user.is_active:
+                    potential_user.is_active = True
+                    added_users.append(user)
+            else:
+                # case 4: shrug
+                logging.debug(f"case 4: {user}")
+                pass
         session.commit()
         if not added_users:
             ret = "No new users added"
@@ -413,14 +433,16 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
 
     def deinit(namespace: Dict[str, Any]) -> (Order, str):
+        cur_user = None
         if namespace["self"]:
             cur_user = session.query(Participant).where(Participant.matrix_address == sender.lower()).first()
         else:
             name = " ".join(namespace["name"]).lower()
-            cur_user = find_match_in_database(name, session, True)
+            if name:
+                cur_user = find_match_in_database(name, session, True)
 
         if cur_user is None:
-            return order, f"User {sender.title()} not registered"
+            return order, f"Could not exit: Either user not found or no user specified"
         elif cur_user.user_total != 0:
             return order, f"Balance of {cur_user.name.title()} is {cent_to_euro(cur_user.user_total)}"
         elif cur_user.user_total == 0:
@@ -429,10 +451,11 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, f"User {cur_user.name.title()} left..."
 
     def transfer(namespace: Dict[str, Any]) -> (Order, str):
+        logging.debug(f"transfer: {namespace}")
         if namespace["origin"] is None:
             origin = sender.lower()
         else:
-            origin = " ".join(namespace["origin"]).lower()
+            origin = namespace["origin"].lower()
         if namespace["destination"] is None:
             return order, "No destination specified"
 
@@ -507,7 +530,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     reopen_parser = order_subparser.add_parser(cmd[13], help="reopen last order, if no current order")
     reopen_parser.set_defaults(func=reopen)
 
-    suggest_parser = order_subparser.add_parser(cmd[14], help="return the last 5 ordered item of the user, with pricing")
+    suggest_parser = order_subparser.add_parser(cmd[14],
+                                                help="return the last 5 ordered item of the user, with pricing")
     suggest_parser.set_defaults(func=suggest)
 
     reorder_parser = order_subparser.add_parser(cmd[18], help="reorder the last item of a user, from the last order")
@@ -518,14 +542,15 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     history_parser.set_defaults(func=history)
     history_parser.add_argument("--k", "-k", type=int, default=5, help="number of orders to display")
 
-    register_parser = user_subparser.add_parser(cmd[0], help="register a different user, e.g. via just the name, use join to register yourself")
+    register_parser = user_subparser.add_parser(cmd[0],
+                                                help="register a different user, e.g. via just the name, use join to register yourself")
     register_parser.set_defaults(func=register)
     register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
 
     pay_parser = user_subparser.add_parser(cmd[17], help="transfer money from one user to another")
     pay_parser.set_defaults(func=transfer)
-    pay_parser.add_argument("amount", type=float, nargs=argparse.ZERO_OR_MORE, help="Amount to be transferred")
-    pay_parser.add_argument("--origin", "-o", type=str, nargs=argparse.ONE_OR_MORE, help="source")
+    pay_parser.add_argument("amount", type=float, help="Amount to be transferred")
+    pay_parser.add_argument("--origin", "-o", type=str, help="source")
     pay_parser.add_argument("destination", type=str, nargs=argparse.ONE_OR_MORE, help="destination")
 
     payout_parser = user_subparser.add_parser(cmd[8], help="get a suggestion for a potential payout")
@@ -535,7 +560,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     payout_parser.add_argument("--accept", "-a", action='store_true',
                                help="accepts the payout, check payout command without this flag first, if unnsure\nIf suggestion is not accepted, use 'transfer' to manually balance the debt/due.")
 
-    if loglevel == logging.INFO:
+    if loglevel == logging.DEBUG:
         add_money_parser = user_subparser.add_parser(cmd[9], help="add initial balance to a user", prefix_chars="@")
         add_money_parser.set_defaults(func=add_money)
         add_money_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
@@ -565,9 +590,9 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         return result
 
     # eror handling for wrong input or help command
-    except (SystemExit, AttributeError):
+    except (SystemExit, AttributeError, argparse.ArgumentError):
         traceback.print_exc()
-        if inp[0] in ["order", "users"]:
+        if inp[0] in ["order", "user"]:
             if len(inp) > 1 and inp[1] in cmd and inp[0] == "order":
                 possible_parsers = [action for action in order_parser._actions if
                                     isinstance(action, argparse._SubParsersAction)]
@@ -575,13 +600,16 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                     for choice, subparser in parser_action.choices.items():
                         if choice == inp[1]:
                             return order, subparser.format_help()
-            elif len(inp) > 1 and inp[1] in cmd and inp[0] == "users":
+                return order, order_parser.format_help()
+            elif len(inp) > 1 and inp[1] in cmd and inp[0] == "user":
                 possible_parsers = [action for action in user_parser._actions if
                                     isinstance(action, argparse._SubParsersAction)]
                 for parser_action in possible_parsers:
                     for choice, subparser in parser_action.choices.items():
                         if choice == inp[1]:
                             return order, subparser.format_help()
+                return order, user_parser.format_help()
+
             else:
                 possible_parsers = [action for action in main_parser._actions if
                                     isinstance(action, argparse._SubParsersAction)]
@@ -596,3 +624,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     # error handling for database errors
     except SQLAlchemyError as e:
         logging.error(e)
+        return order, "Database error, please try again later."
+
+    except Exception as e:
+        logging.error(e)
+        return order, "Unknown error, please try again later."
