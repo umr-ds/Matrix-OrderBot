@@ -33,6 +33,7 @@ cmd = [
     "deinit",
     "transfer",
     "reorder",
+    "history",
 ]
 
 
@@ -502,6 +503,15 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             else:
                 return order, "No reopenable order"
 
+    def history(namespace: Dict[str, Any]) -> (Order, str):
+        orders = get_last_k_orders(session, namespace["k"], False)
+        res = []
+        for k, order in enumerate(orders):
+            res.append(f"Order {k+1}:\n" + order.print_order())
+        return order, "\n------------------------------------------\n".join(res)
+
+
+
     def suggest(*_) -> (Order, str):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
             Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
@@ -608,12 +618,16 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     print_parser.set_defaults(func=print_order)
     print_parser.add_argument("--self", "-s", action='store_true', help="displays only the orders of the messenger")
 
-    reopen_parser = order_subparser.add_parser(cmd[13])  # help="reopens last order, if no current order"
+    reopen_parser = order_subparser.add_parser(cmd[13] , help="reopens last order, if no current order")
     reopen_parser.set_defaults(func=reopen)
 
     reorder_parser = order_subparser.add_parser(cmd[18], help="reorders last order")
     reorder_parser.set_defaults(func=reorder)
     reorder_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE)
+
+    history_parser = order_subparser.add_parser(cmd[19], help="displays history of the last [k] orders")
+    history_parser.set_defaults(func=history)
+    history_parser.add_argument("--k", "-k", type=int, default=5, help="number of orders to display")
 
     user_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
     user_subparser = user_parser.add_subparsers()
