@@ -21,6 +21,7 @@ class Order:
         return self.print_order()
 
     def print_order(self, user: str = None) -> str:
+        import util
         title = f"{self.name}"
         if len(self.order) > 0:
             maxName = max([len(user) for user in self.order])
@@ -59,17 +60,19 @@ class Order:
         self.paid = None
 
     def remove(self, user: str, item: str = None) -> None:
-        if user not in self.order:
+        if user.lower() not in self.order:
             pass
-        elif user is None:
+        elif item is None:
             for entry in self.order[user]:
                 self.price = self.price - entry[1]
             del self.order[user]
         else:
             for c, entry in enumerate(self.order[user]):
-                if entry[0] == item:
+                if entry[0].lower() == item.lower():
                     self.price = self.price - entry[1]
-                    self.order[user].remove(c)
+                    self.order[user].remove(entry)
+            if len(self.order[user]) == 0:
+                del self.order[user]
 
     def add_tip(self, tip: int) -> None:
         if tip >= 0:
