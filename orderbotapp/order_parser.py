@@ -98,21 +98,26 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return order, f"negative tip"
 
     def remove(namespace: Dict[str, Any]) -> (Order, str):
+        logging.debug(namespace)
         if order is None:
             return no_active_order()
         remove_all = namespace["all"]
-        order_to_remove = namespace["order"]
         if namespace["name"] is None:
             name = members[sender].lower()
         else:
-            name = namespace["name"].lower()
+            name = " ".join(namespace["name"]).lower()
+
+        if namespace["ordername"] is None:
+            order_to_remove = None
+        else:
+            order_to_remove = " ".join(namespace["ordername"])
 
         if remove_all or order_to_remove is None:
             order.remove(name)
             return order, f"Removed user {name.title()} from order"
         else:
             order.remove(name, order_to_remove)
-            return order, f"Removed order {namespace['order']} for {name.title()} from order"
+            return order, f"Removed order {order_to_remove} for {name.title()} from order"
 
     def pay(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
@@ -506,12 +511,12 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     remove_parser = order_subparser.add_parser(cmd[2], help="remove a user's item from the current collective order")
     remove_parser.set_defaults(func=remove)
-    remove_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
-                               help="orderer, if different from messenger")
+    remove_parser.add_argument( "--ordername", "-o", type=str, nargs=argparse.ZERO_OR_MORE,
+                               help="name of order, otherwise all are removed (see -a flag)", required=False)
+    remove_parser.add_argument("--name", "-n", type=str, nargs= argparse.ONE_OR_MORE,
+                               help="orderer, if different from messenger", required=False)
     remove_parser.add_argument("--all", "-a", action='store_true',
                                help="flag indicates, that all orders from orderer are removed")
-    remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
-                               help="name of order, otherwise all are removed (see -a flag)")
 
     end_parser = order_subparser.add_parser(cmd[6], help="finish collective order")
     end_parser.set_defaults(func=pay)
