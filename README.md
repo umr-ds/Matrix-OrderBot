@@ -17,7 +17,7 @@ MPASSWORD=
 ## Usage
 
 Invite the bot into a room (it will auto-join). Start commands with `!ob`. 
-Using `--help` or `-h` displays the help message for the used command.
+Using `--help` or `-h` displays the help message for any command.
 
 ### Commands
 
@@ -32,7 +32,6 @@ Overall, the commands are split into two categories:
     register            register a different user, e.g. via just the name, use join to register yourself
     transfer            transfer money from one user to another
     payout              get a suggestion for a potential payout
-    add                 add initial balance to a user
     balance             display the balance of all users
     init                initialize a user's balance
     exit                deactivates user, if balance is zero
