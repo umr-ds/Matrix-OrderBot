@@ -1,17 +1,16 @@
 import argparse
 import logging
-import random
-import re
 import traceback
-from decimal import Decimal, ROUND_HALF_DOWN
 from typing import List, Dict, Any
 
-from sqlalchemy import or_, update, and_
+from sqlalchemy import update, and_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from db_classes import Participant, Cuts, DB_Order
 from order import Order
+from orderbotapp.util import cent_to_euro, euro_to_cent, save_order_in_db, no_active_order, set_recommended_payers, \
+    find_match_in_database, get_last_k_orders
 
 cmd = [
     "register",
@@ -26,133 +25,15 @@ cmd = [
     "add",
     "balance",
     "join",
-    "all",
+    "[hier könnte ihre werbung stehen]",
     "reopen",
     "suggest",
     "init",
-    "deinit",
+    "exit",
     "transfer",
     "reorder",
     "history",
 ]
-
-
-def cent_to_euro(cents: int) -> str:
-    return "{:.2f}".format(cents / 100)
-
-
-def euro_to_cent(f: float) -> int:
-    return int(Decimal(f * 100).quantize(Decimal('1'), rounding=ROUND_HALF_DOWN))
-
-
-def split_tip(tip: int, number_of_shares: int) -> List[int]:
-    """
-    Precisely splits the tip.
-    :param tip: the tip
-    :param number_of_shares: The number of shares
-    :return: A list of Decimals, summing to the tip.
-    """
-    l = [tip // number_of_shares] * number_of_shares
-    too_much = tip - sum(l)
-    if too_much > 0:
-        for i in range(too_much):
-            l[i] = l[i] + 1
-    if too_much < 0:
-        for i in range(-too_much):
-            l[i] = l[i] - 1
-    random.shuffle(l)
-    return [x for x in l]
-
-
-def save_order_in_db(order: Order, session: Session) -> None:
-    # register all user in db, if not already in there.
-    all_registered_users = [name for name_tuple in session.query(Participant.name, Participant.matrix_address).all() for
-                            name in name_tuple]
-    # add order into db
-    db_order = order.to_dborder()
-    session.add(db_order)
-    session.commit()
-    tip_shares = split_tip(order.tip, len(order.order))
-    # adding all users to participant, cuts
-    for index, user in enumerate(order.order):
-        if user not in all_registered_users:
-            handle = re.match(r"@(\S+):\S+\.\S+", user)
-            if handle:
-                name = handle.group(1)
-                session.add(Participant(name=name, matrix_address=user))
-                session.commit()
-            else:
-                session.add(Participant(name=user))
-                session.commit()
-
-        user_id = session.query(Participant.pid) \
-            .where(or_(Participant.name == user, Participant.matrix_address == user)) \
-            .first()[0]
-        user_tip = tip_shares[index]
-        for item in order.order[user]:
-            session.add(
-                Cuts(pid=user_id, oid=db_order.oid, cut=item[1], name=item[0])
-            )
-        session.add(
-            Cuts(pid=user_id, oid=db_order.oid, cut=user_tip, name="tip"))
-        session.commit()
-
-        # update owned ect.
-        session.execute(
-            update(Participant).where(Participant.pid == user_id)
-            .values(user_total=Participant.user_total - sum(item[1] for item in order.order[user]) - user_tip)
-        )
-        session.commit()
-
-
-def no_active_order() -> (Order, str):
-    """
-    simple method to streamline reply-message
-    """
-    return None, "start an order first!"
-
-
-def set_recommended_payers(order: Order, session: Session) -> None:
-    user = session.query(Participant).where(Participant.is_active.is_(True)).filter(
-        Participant.name.in_(order.order.keys())).order_by(Participant.user_total).first()
-    if user:
-        order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
-
-
-def find_match_in_database(name, session: Session, active: bool = False) -> Participant:
-    handle = re.match(r"@(\S+):\S+\.\S+", name)
-    if handle:
-        cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
-    else:
-        cur_user = session.query(Participant).where(Participant.name == name).first()
-    if active:
-        if cur_user and cur_user.is_active:
-            return cur_user
-        else:
-            return None
-    return cur_user
-
-
-def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> List[Order]:
-    orders_oids = session.query(DB_Order.oid, DB_Order.name).order_by(DB_Order.oid.desc()).limit(k).all()
-    orders = []
-    for (oid, name) in orders_oids:
-        cuts = session.query(Cuts, Participant).join(Participant, Cuts.pid == Participant.pid).where(
-            Cuts.oid == oid).all()
-        order = Order(name)
-        for cut, participant in cuts:
-            if cut.name == "paid amount":
-                pass
-            elif cut.name == "tip":
-                order.add_tip(cut.cut)
-            else:
-                order.add_pos(participant.name, cut.name, cut.cut)
-        orders.append(order)
-        if delete:
-            session.query(Cuts).where(Cuts.oid == oid).delete()
-            session.query(DB_Order).where(DB_Order.oid == oid).delete()
-            session.commit()
-    return orders
 
 
 def parse_input(inp: List[str], session: Session, order: Order, sender: str, members: Dict[str, str]) -> (Order, str):
@@ -397,6 +278,30 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             return order, "Nothing to payout"
 
+    def reopen(*_) -> (Order, str):
+        if order:
+            return order, "Close current order first"
+        else:
+            opened_order = get_last_k_orders(session, 1, True)
+            if opened_order:
+                return opened_order[0], "Reopened order\n" + opened_order[0].print_order()
+            else:
+                return order, "No reopenable order"
+
+    def history(namespace: Dict[str, Any]) -> (Order, str):
+        orders = get_last_k_orders(session, namespace["k"], False)
+        res = []
+        for k, order in enumerate(orders):
+            res.append(f"Order {k + 1}:\n" + order.print_order())
+        return order, "\n------------------------------------------\n".join(res)
+
+    def suggest(*_) -> (Order, str):
+        last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
+            Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
+            Cuts.timestamp.desc()).limit(5).all()
+        return order, f"As your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
+            item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
+
     def add_money(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         cur_user = find_match_in_database(name, session, True)
@@ -489,36 +394,6 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             session.commit()
             return order, f"Added {name.title()}"
 
-    def registered(*_) -> (Order, str):
-        users = [(user.matrix_address, user.name) for user in session.query(Participant).all()]
-        return order, "\n".join(str(user) for user in users)
-
-    def reopen(*_) -> (Order, str):
-        if order:
-            return order, "Close current order first"
-        else:
-            opened_order = get_last_k_orders(session, 1, True)
-            if opened_order:
-                return opened_order[0], "Reopened order\n" + opened_order[0].print_order()
-            else:
-                return order, "No reopenable order"
-
-    def history(namespace: Dict[str, Any]) -> (Order, str):
-        orders = get_last_k_orders(session, namespace["k"], False)
-        res = []
-        for k, order in enumerate(orders):
-            res.append(f"Order {k+1}:\n" + order.print_order())
-        return order, "\n------------------------------------------\n".join(res)
-
-
-
-    def suggest(*_) -> (Order, str):
-        last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
-            Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
-            Cuts.timestamp.desc()).limit(5).all()
-        return order, f"As your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
-            item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
-
     def init(namespace: Dict[str, Any]) -> (Order, str):
         name = " ".join(namespace["name"]).lower()
         cur_user = find_match_in_database(name, session, True)
@@ -575,15 +450,25 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         session.commit()
         return order, f"Transferred {cent_to_euro(amount)} from {origin_user.name.title()} to {destination_user.name.title()}"
 
+    main_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
+    main_subparser = main_parser.add_subparsers()
+
     order_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
     order_subparser = order_parser.add_subparsers()
+    order_parser = main_subparser.add_parser("order", parents=[order_parser], help="manages orders")
+    order_parser.add_argument("order", action="store_true", help="manages orders")
 
-    start_parser = order_subparser.add_parser(cmd[4], help="starts a new collective order")
+    user_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
+    user_subparser = user_parser.add_subparsers()
+    user_parser = main_subparser.add_parser("user", parents=[user_parser], help="manages users")
+    user_parser.add_argument("user", action="store_true", help="manages users")
+
+    start_parser = order_subparser.add_parser(cmd[4], help="start a new collective order")
     start_parser.set_defaults(func=start)
     start_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, default=["an", "unknown", "order"],
                               help="name of collective order")
 
-    add_parser = order_subparser.add_parser(cmd[1], help="adds new order")
+    add_parser = order_subparser.add_parser(cmd[1], help="add item of a user to order")
     add_parser.set_defaults(func=add)
     add_parser.add_argument("order name", type=str, nargs=argparse.ZERO_OR_MORE, default=["unknown", "Meal"],
                             help="name of order")
@@ -591,11 +476,11 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     add_parser.add_argument("--name", "-n", type=str,
                             help="orderer, if different from messenger, in quotes")
 
-    tip_parser = order_subparser.add_parser(cmd[3], help="adds a tip")
+    tip_parser = order_subparser.add_parser(cmd[3], help="add a tip")
     tip_parser.set_defaults(func=tip)
     tip_parser.add_argument("tip", type=float, help="tip amount")
 
-    remove_parser = order_subparser.add_parser(cmd[2], help="removes order from collective order")
+    remove_parser = order_subparser.add_parser(cmd[2], help="remove a user's item from the current collective order")
     remove_parser.set_defaults(func=remove)
     remove_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
@@ -604,83 +489,69 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     remove_parser.add_argument("--order", "-o", nargs=argparse.ZERO_OR_MORE,
                                help="name of order, otherwise all are removed (see -a flag)")
 
-    end_parser = order_subparser.add_parser(cmd[6], help="finishes collective order")
+    end_parser = order_subparser.add_parser(cmd[6], help="finish collective order")
     end_parser.set_defaults(func=pay)
     end_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                             help="payer, if different from messenger")
     end_parser.add_argument("--amount", "-a", type=float,
                             help="amount paid, if not specified, everything is paid, and the order is finished")
 
-    cancel_parser = order_subparser.add_parser(cmd[5], help="cancels current collective order")
+    cancel_parser = order_subparser.add_parser(cmd[5], help="cancel current collective order")
     cancel_parser.set_defaults(func=cancel)
 
-    print_parser = order_subparser.add_parser(cmd[7], help="displays current collective order")
+    print_parser = order_subparser.add_parser(cmd[7], help="display current collective order")
     print_parser.set_defaults(func=print_order)
     print_parser.add_argument("--self", "-s", action='store_true', help="displays only the orders of the messenger")
 
-    reopen_parser = order_subparser.add_parser(cmd[13] , help="reopens last order, if no current order")
+    reopen_parser = order_subparser.add_parser(cmd[13], help="reopen last order, if no current order")
     reopen_parser.set_defaults(func=reopen)
 
-    reorder_parser = order_subparser.add_parser(cmd[18], help="reorders last order")
+    suggest_parser = order_subparser.add_parser(cmd[14], help="return the last 5 ordered item of the user, with pricing")
+    suggest_parser.set_defaults(func=suggest)
+
+    reorder_parser = order_subparser.add_parser(cmd[18], help="reorder the last item of a user, from the last order")
     reorder_parser.set_defaults(func=reorder)
     reorder_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE)
 
-    history_parser = order_subparser.add_parser(cmd[19], help="displays history of the last [k] orders")
+    history_parser = order_subparser.add_parser(cmd[19], help="display history of the last [k] orders")
     history_parser.set_defaults(func=history)
     history_parser.add_argument("--k", "-k", type=int, default=5, help="number of orders to display")
 
-    user_parser = argparse.ArgumentParser(prog="UserBot", add_help=False, usage="%(prog)s options:")
-    user_subparser = user_parser.add_subparsers()
-
-    register_parser = user_subparser.add_parser(cmd[0], help="registers different user, use join to register yourself")
+    register_parser = user_subparser.add_parser(cmd[0], help="register a different user, e.g. via just the name, use join to register yourself")
     register_parser.set_defaults(func=register)
     register_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str)
 
-    pay_parser = user_subparser.add_parser(cmd[17], help="Transfers money from one user to another")
+    pay_parser = user_subparser.add_parser(cmd[17], help="transfer money from one user to another")
     pay_parser.set_defaults(func=transfer)
     pay_parser.add_argument("amount", type=float, nargs=argparse.ZERO_OR_MORE, help="Amount to be transferred")
     pay_parser.add_argument("--origin", "-o", type=str, nargs=argparse.ONE_OR_MORE, help="source")
     pay_parser.add_argument("destination", type=str, nargs=argparse.ONE_OR_MORE, help="destination")
 
-    payout_parser = user_subparser.add_parser(cmd[8], help="pays out the remaining debt/due balance of messenger")
+    payout_parser = user_subparser.add_parser(cmd[8], help="get a suggestion for a potential payout")
     payout_parser.set_defaults(func=payout)
     payout_parser.add_argument("--name", "-n", type=str, nargs=argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger")
     payout_parser.add_argument("--accept", "-a", action='store_true',
                                help="accepts the payout, check payout command without this flag first, if unnsure\nIf suggestion is not accepted, use 'transfer' to manually balance the debt/due.")
 
-    add_money_parser = user_subparser.add_parser(cmd[9], help="adds initial balance", prefix_chars="@")
+    add_money_parser = user_subparser.add_parser(cmd[9], help="add initial balance to a user", prefix_chars="@")
     add_money_parser.set_defaults(func=add_money)
     add_money_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
     add_money_parser.add_argument("balance", type=float, help="balance")
 
-    balance_parser = user_subparser.add_parser(cmd[10], help="displays the balance of all users")
+    balance_parser = user_subparser.add_parser(cmd[10], help="display the balance of all users")
     balance_parser.set_defaults(func=balance)
 
-    join_parser = user_subparser.add_parser(cmd[11], help="joins system")
+    join_parser = user_subparser.add_parser(cmd[11], help="join system with matrix-address")
     join_parser.add_argument("--all", "-a", action='store_true', help="adds all current members of the room to the db")
     join_parser.set_defaults(func=join)
 
-    registered_parser = user_subparser.add_parser(cmd[12])
-    registered_parser.set_defaults(func=registered)
-
-    suggest_parser = user_subparser.add_parser(cmd[14], help="returns the last 5 orders, with pricing")
-    suggest_parser.set_defaults(func=suggest)
-
-    main_parser = argparse.ArgumentParser(prog="OrderBot", add_help=False, usage="%(prog)s options:")
-    main_subparser = main_parser.add_subparsers()
-
-    order_parser = main_subparser.add_parser("order", parents=[order_parser], help="manages orders")
-    order_parser.add_argument("order", action="store_true", help="manages orders")
-    user_parser = main_subparser.add_parser("users", parents=[user_parser], help="manages users")
-    user_parser.add_argument("users", action="store_true", help="manages users")
-
-    init_parser = user_subparser.add_parser(cmd[15], help="initializes user")
+    init_parser = user_subparser.add_parser(cmd[15], help="initialize a user's balance")
     init_parser.set_defaults(func=init)
     init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="name of user")
     init_parser.add_argument("balance", type=float, help="balance")
 
-    deinit_parser = user_subparser.add_parser(cmd[16], help="deinitializes user, if balance is zero")
+    deinit_parser = user_subparser.add_parser(cmd[16], help="deactivates user, if balance is zero")
     deinit_parser.set_defaults(func=deinit)
     deinit_parser.add_argument("--self", "-s", action='store_true', help="deinitializes messenger")
     deinit_parser.add_argument("name", nargs=argparse.ZERO_OR_MORE, type=str, help="name of user")
