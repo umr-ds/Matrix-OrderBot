@@ -14,6 +14,7 @@ import order_parser
 from db_classes import setup_db
 from order import order_version
 
+loglevel = log.DEBUG
 log.basicConfig(format="%(levelname)s|%(asctime)s: %(message)s", level=log.DEBUG)
 
 

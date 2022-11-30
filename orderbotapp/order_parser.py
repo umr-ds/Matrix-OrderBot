@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from db_classes import Participant, Cuts, DB_Order
 from order import Order
+from orderbotapp.orderbot import loglevel
 from orderbotapp.util import cent_to_euro, euro_to_cent, save_order_in_db, no_active_order, set_recommended_payers, \
     find_match_in_database, get_last_k_orders
 
@@ -534,10 +535,11 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     payout_parser.add_argument("--accept", "-a", action='store_true',
                                help="accepts the payout, check payout command without this flag first, if unnsure\nIf suggestion is not accepted, use 'transfer' to manually balance the debt/due.")
 
-    add_money_parser = user_subparser.add_parser(cmd[9], help="add initial balance to a user", prefix_chars="@")
-    add_money_parser.set_defaults(func=add_money)
-    add_money_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
-    add_money_parser.add_argument("balance", type=float, help="balance")
+    if loglevel == logging.INFO:
+        add_money_parser = user_subparser.add_parser(cmd[9], help="add initial balance to a user", prefix_chars="@")
+        add_money_parser.set_defaults(func=add_money)
+        add_money_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="recipient")
+        add_money_parser.add_argument("balance", type=float, help="balance")
 
     balance_parser = user_subparser.add_parser(cmd[10], help="display the balance of all users")
     balance_parser.set_defaults(func=balance)
