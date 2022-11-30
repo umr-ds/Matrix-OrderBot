@@ -1,7 +1,6 @@
 from typing import Union, Tuple, List
 
-import order_parser
-import orderbotapp.util
+
 from db_classes import DB_Order
 
 order_version: int = 1
@@ -9,6 +8,7 @@ order_version: int = 1
 class Order:
 
     def __init__(self, name="Order"):
+        import util
         self.order: dict[str, List[Tuple[str, int]]] = {}
         self.name: str = name
         self.price: int = 0
@@ -37,15 +37,15 @@ class Order:
                 if item[0] == "paid amount":
                     continue
                 if count == 0:
-                    order += f"{item[0]:<{maxItem}} {orderbotapp.util.cent_to_euro(item[1]):>{maxAmount}}"
+                    order += f"{item[0]:<{maxItem}} {util.cent_to_euro(item[1]):>{maxAmount}}"
                     count += 1
                 else:
-                    order += f"{'':<{maxName + 2}}{item[0]:<{maxItem}} {orderbotapp.util.cent_to_euro(item[1]):>{maxAmount}}"
+                    order += f"{'':<{maxName + 2}}{item[0]:<{maxItem}} {util.cent_to_euro(item[1]):>{maxAmount}}"
                 order += "\n"
         s = (title, order,
-            f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {orderbotapp.util.cent_to_euro(self.tip):>{maxAmount}}",
-            f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {orderbotapp.util.cent_to_euro(self.price):>{maxAmount}}",
-            f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {orderbotapp.util.cent_to_euro((self.tip + self.price)):>{maxAmount}}",
+            f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {util.cent_to_euro(self.tip):>{maxAmount}}",
+            f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {util.cent_to_euro(self.price):>{maxAmount}}",
+            f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {util.cent_to_euro((self.tip + self.price)):>{maxAmount}}",
             f"Paid by: {self.paid.title() if self.paid else 'Not paid'} (Recommended Payer: {self.recommended_payer[0].title() if self.recommended_payer else 'None'} [{self.recommended_payer[1] if self.recommended_payer else '0'}])"
             )
         return "\n".join(s)

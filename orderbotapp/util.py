@@ -6,8 +6,8 @@ from typing import List
 from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
-from orderbotapp.db_classes import Participant, Cuts, DB_Order
-from orderbotapp.order import Order
+from db_classes import Participant, Cuts, DB_Order
+import order
 
 
 def cent_to_euro(cents: int) -> str:
@@ -50,7 +50,7 @@ def split_tip(tip: int, number_of_shares: int) -> List[int]:
     return [x for x in l]
 
 
-def save_order_in_db(order: Order, session: Session) -> None:
+def save_order_in_db(order: order.Order, session: Session) -> None:
     """
     save order in database
 
@@ -99,14 +99,14 @@ def save_order_in_db(order: Order, session: Session) -> None:
         session.commit()
 
 
-def no_active_order() -> (Order, str):
+def no_active_order() -> (order.Order, str):
     """
     simple method to streamline reply-message
     """
     return None, "start an order first!"
 
 
-def set_recommended_payers(order: Order, session: Session) -> None:
+def set_recommended_payers(order: order.Order, session: Session) -> None:
     """
     set recommended payers for order based on db balance
     :param order: Order
@@ -141,7 +141,7 @@ def find_match_in_database(name, session: Session, active: bool = False) -> Part
     return cur_user
 
 
-def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> List[Order]:
+def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> List[order.Order]:
     """
     get last k orders from db
     if delete is true, delete orders from db
@@ -155,7 +155,7 @@ def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> Lis
     for (oid, name) in orders_oids:
         cuts = session.query(Cuts, Participant).join(Participant, Cuts.pid == Participant.pid).where(
             Cuts.oid == oid).all()
-        order = Order(name)
+        order = order.Order(name)
         for cut, participant in cuts:
             if cut.name == "paid amount":
                 pass
