@@ -346,14 +346,12 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         logging.debug(f"users: {users}")
         logging.debug(f"user_names: {user_names}")
         if namespace["all"]:
-            # make all values in members lowercase in dict
             to_add = {k.lower(): v.lower() for k, v in members.items()}
         else:
             to_add = {sender: members[sender]}
 
         logging.debug(f"to_add with duplicates: {to_add}")
 
-        #find all values that are duplicated in dict
         duplicates = [item for item, count in collections.Counter(to_add.values()).items() if count > 1]
         if duplicates:
             duplicates_str = ", ".join(duplicates)
@@ -396,7 +394,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
             elif user in users and members[user].lower() in user_names:
                 # case 3: user name and matrix address already taken
-                logging.debug(f"case 4: {user}")
+                logging.debug(f"case 3: {user}")
                 potential_user = session.query(Participant).where(
                     and_(Participant.name == members[user].lower(), Participant.matrix_address == user.lower())).first()
                 if potential_user and not potential_user.is_active:
