@@ -1,4 +1,5 @@
 import argparse
+import collections
 import logging
 import traceback
 from typing import List, Dict, Any
@@ -345,11 +346,21 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         logging.debug(f"users: {users}")
         logging.debug(f"user_names: {user_names}")
         if namespace["all"]:
-            to_add = members
+            # make all values in members lowercase in dict
+            to_add = {k.lower(): v.lower() for k, v in members.items()}
         else:
             to_add = {sender: members[sender]}
 
-        logging.debug(f"to_add: {to_add}")
+        logging.debug(f"to_add with duplicates: {to_add}")
+
+        #find all values that are duplicated in dict
+        duplicates = [item for item, count in collections.Counter(to_add.values()).items() if count > 1]
+        if duplicates:
+            duplicates_str = ", ".join(duplicates)
+            to_add = {k: v for k, v in to_add.items() if v not in duplicates}
+
+
+        logging.debug(f"to_add without duplicates: {to_add}")
 
         for user in to_add:
             user = user.lower()
@@ -399,7 +410,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         if not added_users:
             ret = "No new users added"
         else:
-            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users])
+            logging.debug(f"added users: {added_users}")
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + ", ".join(duplicates) if duplicates else "")
         return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
