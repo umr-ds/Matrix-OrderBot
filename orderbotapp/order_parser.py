@@ -411,7 +411,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             ret = "No new users added"
         else:
             logging.debug(f"added users: {added_users}")
-            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + ", ".join(duplicates) if duplicates else "")
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + ", ".join([dub.title for dub in duplicates]) if duplicates else "")
         return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
