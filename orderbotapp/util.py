@@ -156,15 +156,15 @@ def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> Lis
     for (oid, name) in orders_oids:
         cuts = session.query(Cuts, Participant).join(Participant, Cuts.pid == Participant.pid).where(
             Cuts.oid == oid).all()
-        order = order.Order(name)
+        ord = order.Order(name)
         for cut, participant in cuts:
             if cut.name == "paid amount":
                 pass
             elif cut.name == "tip":
-                order.add_tip(cut.cut)
+                ord.add_tip(cut.cut)
             else:
-                order.add_pos(participant.name, cut.name, cut.cut)
-        orders.append(order)
+                ord.add_pos(participant.name, cut.name, cut.cut)
+        orders.append(ord)
         if delete:
             session.query(Cuts).where(Cuts.oid == oid).delete()
             session.query(DB_Order).where(DB_Order.oid == oid).delete()
