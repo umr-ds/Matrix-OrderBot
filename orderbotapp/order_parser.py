@@ -137,13 +137,16 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
-        elif euro_to_cent(namespace["amount"]) >= order.price + order.tip:
+        elif euro_to_cent(namespace["amount"]) >= order.price + order.tip - order.sum_payed():
             order.add_tip(euro_to_cent(namespace["amount"]) - (order.price + order.tip))
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
+        elif euro_to_cent(namespace["amount"]) > 0:
+            order.pay(name, euro_to_cent(namespace["amount"]))
+            return order, f"Order partially paid\n" + str(order)
         else:
-            return order, f"amount must be greater than {cent_to_euro(order.price + order.tip)}"
+            return order, f"amount must be positive"
 
     def reorder(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
@@ -643,4 +646,5 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     except Exception as e:
         logging.error(e)
+        traceback.print_exc()
         return order, "Unknown error, please try again later."

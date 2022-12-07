@@ -85,16 +85,29 @@ def save_order_in_db(order: order.Order, session: Session) -> None:
         user_tip = tip_shares[index]
         for item in order.order[user]:
             session.add(
-                Cuts(pid=user_id, oid=db_order.oid, cut=item[1], name=item[0])
+                Cuts(pid=user_id, oid=db_order.oid, cut=-item[1], name=item[0])
             )
         session.add(
-            Cuts(pid=user_id, oid=db_order.oid, cut=user_tip, name="tip"))
+            Cuts(pid=user_id, oid=db_order.oid, cut=-user_tip, name="tip"))
         session.commit()
-
         # update owned ect.
         session.execute(
             update(Participant).where(Participant.pid == user_id)
             .values(user_total=Participant.user_total - sum(item[1] for item in order.order[user]) - user_tip)
+        )
+        session.commit()
+
+    for user in order.payers:
+
+        user_id = session.query(Participant.pid) \
+            .where(or_(Participant.name == user, Participant.matrix_address == user)) \
+            .first()[0]
+        session.add(
+            Cuts(pid=user_id, oid=db_order.oid, cut=order.payers[user], name="amount paid")
+        )
+        session.execute(
+            update(Participant).where(Participant.pid == user_id)
+            .values(user_total=Participant.user_total + order.payers[user])
         )
         session.commit()
 
