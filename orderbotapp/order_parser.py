@@ -354,7 +354,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
         duplicates = [item for item, count in collections.Counter(to_add.values()).items() if count > 1]
         if duplicates:
-            duplicates_str = ", ".join(duplicates)
+            duplicates_str = ", ".join([dub.title() for dub in duplicates])
             to_add = {k: v for k, v in to_add.items() if v not in duplicates}
 
 
@@ -409,7 +409,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             ret = "No new users added"
         else:
             logging.debug(f"added users: {added_users}")
-            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + ", ".join([dub.title for dub in duplicates]) if duplicates else "")
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + duplicates_str if duplicates else "")
         return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):

@@ -128,6 +128,7 @@ def find_match_in_database(name, session: Session, active: bool = False) -> Part
     :param active: bool
     :return: Participant
     """
+    name = name.lower()
     handle = re.match(r"@(\S+):\S+\.\S+", name)
     if handle:
         cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
