@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from db_classes import Participant, Cuts, DB_Order
 import order
 
+paid_string = "paid amount"
+
 
 def cent_to_euro(cents: int) -> str:
     """
@@ -103,7 +105,7 @@ def save_order_in_db(order: order.Order, session: Session) -> None:
             .where(or_(Participant.name == user, Participant.matrix_address == user)) \
             .first()[0]
         session.add(
-            Cuts(pid=user_id, oid=db_order.oid, cut=order.payers[user], name="amount paid")
+            Cuts(pid=user_id, oid=db_order.oid, cut=order.payers[user], name=paid_string)
         )
         session.execute(
             update(Participant).where(Participant.pid == user_id)
@@ -171,15 +173,23 @@ def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> Lis
             Cuts.oid == oid).all()
         ord = order.Order(name)
         for cut, participant in cuts:
-            if cut.name == "paid amount":
+            if cut.name == paid_string:
                 pass
             elif cut.name == "tip":
                 ord.add_tip(cut.cut)
             else:
-                ord.add_pos(participant.name, cut.name, cut.cut)
+                ord.add_pos(participant.name, cut.name, -cut.cut)
+        for cut, participant in cuts:
+            if cut.name == paid_string:
+                ord.pay(participant.name, cut.cut)
         orders.append(ord)
         if delete:
             session.query(Cuts).where(Cuts.oid == oid).delete()
             session.query(DB_Order).where(DB_Order.oid == oid).delete()
+            for cut, participant in cuts:
+                session.execute(
+                    update(Participant).where(Participant.pid == participant.pid)
+                    .values(user_total=Participant.user_total - cut.cut)
+                )
             session.commit()
     return orders
