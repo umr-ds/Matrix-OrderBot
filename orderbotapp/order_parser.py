@@ -356,7 +356,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             to_add = {k: v for k, v in to_add.items() if v not in duplicates}
 
 
-        logging.debug(f"to_add without duplicates: {to_add}")
+        logging.debug(f"to_add without duplicates: {to_add} - {duplicates_str}")
 
         for user in to_add:
             user = user.lower()
@@ -411,10 +411,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 pass
         session.commit()
         if not added_users:
-            ret = "No new users added"
+            ret = "No new users added" + ("\nduplicate Usernames: " + duplicates_str if duplicates else "")
         else:
             logging.debug(f"added users: {added_users}")
-            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + duplicates_str if duplicates else "")
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + ("\nduplicate Usernames: " + duplicates_str if duplicates else "")
         return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
