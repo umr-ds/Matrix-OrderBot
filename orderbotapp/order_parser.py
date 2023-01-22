@@ -563,7 +563,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     tip_parser.set_defaults(func=tip)
     tip_parser.add_argument("tip", type=float, help="tip amount")
 
-    remove_parser = order_subparser.add_parser(cmd[2], help="remove a user's item from the current collective order")
+    remove_parser = order_subparser.add_parser(cmd[2], help="remove a user's item from the current collective order, all items of a user or all users")
     remove_parser.set_defaults(func=remove)
     remove_parser.add_argument( "--ordername", "-o", type=str, nargs=argparse.ZERO_OR_MORE,
                                help="name of order, otherwise all are removed (see -a flag)", required=False)
@@ -601,7 +601,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     history_parser.set_defaults(func=history)
     history_parser.add_argument("--k", "-k", type=int, default=5, help="number of orders to display")
 
-    edit_parser = order_subparser.add_parser(cmd[12], help="edit an order")
+    edit_parser = order_subparser.add_parser(cmd[12], help="edit the price of an item")
     edit_parser.set_defaults(func=edit)
     edit_parser.add_argument("order name", type=str, nargs=argparse.ONE_OR_MORE, help="name of order")
     edit_parser.add_argument("new price", type=float, help="new price")

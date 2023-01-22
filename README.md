@@ -42,8 +42,9 @@ Overall, the commands are split into two categories:
 ```
     start               start a new collective order
     add                 add item of a user to order
-    tip                 add a tip
-    remove              remove a user's item from the current collective order
+    tip                 set tip of the order
+    remove              remove a user's item from the current collective order, all items of a user or all users
+    edit                edit the price of an item
     end                 finish collective order
     cancel              cancel current collective order
     print               display current collective order
