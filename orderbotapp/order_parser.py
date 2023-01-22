@@ -23,7 +23,7 @@ cmd = [
     "add",
     "balance",
     "join",
-    "[hier könnte ihre werbung stehen]",
+    "edit",
     "reopen",
     "suggest",
     "init",
@@ -57,6 +57,28 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         order_to_return.add_pos(user=name, item=meal_name, amount=price)
         return order_to_return, msg + f"Order added for {name.title()}, order: {meal_name}, price: {cent_to_euro(price)}"
 
+    def edit(namespace: Dict[str, Any]) -> (Order, str):
+        logging.debug(namespace)
+        price = euro_to_cent(namespace['new price'])
+        if namespace["name"] is None:
+            p = find_match_in_database(sender, session, active=True)
+            if not p:
+                return order, "Register user first with !ob join"
+            name = p.name
+        else:
+            p = find_match_in_database(namespace["name"], session, active=True)
+            if not p:
+                return order, "Register user first with !ob register <name>"
+            name = p.name
+        if order is None:
+            return order, no_active_order()
+        meal_name = " ".join(namespace["order name"])
+        if order.edit_pos(user=name, item=meal_name, amount=price):
+            return order, f"Order edited for {name.title()}, order: {meal_name}, price: {cent_to_euro(price)}"
+        else:
+            return order, f"Order not found for {name.title()}, order: {meal_name}"
+
+
     def start(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
             if namespace["name"] is None or namespace["name"] == []:
@@ -89,8 +111,8 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             return no_active_order()
         ttip = euro_to_cent(namespace['tip'])
         if ttip > 0:
-            order.add_tip(ttip)
-            return order, f"Added tip: {cent_to_euro(ttip)}"
+            order.set_tip(ttip)
+            return order, f"Set tip to {cent_to_euro(ttip)}"
         else:
             return order, f"negative tip"
 
@@ -109,9 +131,12 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         else:
             order_to_remove = " ".join(namespace["ordername"])
 
-        if remove_all or order_to_remove is None:
+        if order_to_remove is None and not remove_all:
             order.remove(name)
             return order, f"Removed user {name.title()} from order"
+        if remove_all:
+            order.remove_all()
+            return order, f"Removed all users from order"
         else:
             order.remove(name, order_to_remove)
             return order, f"Removed order {order_to_remove} for {name.title()} from order"
@@ -350,6 +375,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
         logging.debug(f"to_add with duplicates: {to_add}")
 
+        duplicates_str = ""
         duplicates = [item for item, count in collections.Counter(to_add.values()).items() if count > 1]
         if duplicates:
             duplicates_str = ", ".join([dub.title() for dub in duplicates])
@@ -544,7 +570,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     remove_parser.add_argument("--name", "-n", type=str, nargs= argparse.ONE_OR_MORE,
                                help="orderer, if different from messenger", required=False)
     remove_parser.add_argument("--all", "-a", action='store_true',
-                               help="flag indicates, that all orders from orderer are removed")
+                               help="all orders are removed")
 
     end_parser = order_subparser.add_parser(cmd[6], help="finish collective order")
     end_parser.set_defaults(func=pay)
@@ -574,6 +600,13 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     history_parser = order_subparser.add_parser(cmd[19], help="display history of the last [k] orders")
     history_parser.set_defaults(func=history)
     history_parser.add_argument("--k", "-k", type=int, default=5, help="number of orders to display")
+
+    edit_parser = order_subparser.add_parser(cmd[12], help="edit an order")
+    edit_parser.set_defaults(func=edit)
+    edit_parser.add_argument("order name", type=str, nargs=argparse.ONE_OR_MORE, help="name of order")
+    edit_parser.add_argument("new price", type=float, help="new price")
+    edit_parser.add_argument("--name", "-n", type=str,
+                             help="orderer, if different from messenger")
 
     register_parser = user_subparser.add_parser(cmd[0],
                                                 help="register a different user, e.g. via just the name, use join to register yourself")
