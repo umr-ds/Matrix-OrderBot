@@ -2,17 +2,13 @@ import argparse
 import collections
 import logging
 import traceback
-from typing import List, Dict, Any
+from typing import Dict, Any
 
-from sqlalchemy import update, and_
+from sqlalchemy import and_
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
-
-from db_classes import Participant, Cuts, DB_Order
 from order import Order
 from orderbot import loglevel
-from util import cent_to_euro, euro_to_cent, save_order_in_db, no_active_order, set_recommended_payers, \
-    find_match_in_database, get_last_k_orders
+from util import *
 
 cmd = [
     "register",
@@ -137,13 +133,15 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
-        elif euro_to_cent(namespace["amount"]) >= order.price + order.tip:
-            order.add_tip(euro_to_cent(namespace["amount"]) - (order.price + order.tip))
-            order.pay(name)
-            save_order_in_db(order, session)
-            return None, "order paid\n" + str(order)
+        elif euro_to_cent(namespace["amount"]) > 0:
+            order.pay(name, euro_to_cent(namespace["amount"]))
+            if order.paid:
+                save_order_in_db(order, session)
+                return None, "order paid\n" + str(order)
+            else:
+                return order, f"Order partially paid\n" + str(order)
         else:
-            return order, f"amount must be greater than {cent_to_euro(order.price + order.tip)}"
+            return order, f"amount must be positive"
 
     def reorder(namespace: Dict[str, Any]) -> (Order, str):
         if order is None:
@@ -159,7 +157,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         last_order = session.query(DB_Order, Cuts, Participant).join(Cuts, Cuts.oid == DB_Order.oid).join(Participant,
                                                                                                           Cuts.pid == Participant.pid) \
             .filter(Participant.name == cur_user.name).filter(
-            and_(Cuts.name != "paid amount", Cuts.name != "tip")).order_by(DB_Order.oid.desc()).first()
+            and_(Cuts.name != paid_string, Cuts.name != "tip")).order_by(DB_Order.oid.desc()).first()
         if last_order is None:
             return order, "No previous order found"
         else:
@@ -298,13 +296,13 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     def history(namespace: Dict[str, Any]) -> (Order, str):
         orders = get_last_k_orders(session, namespace["k"], False)
         res = []
-        for k, order in enumerate(orders):
-            res.append(f"Order {k + 1}:\n" + order.print_order())
+        for k, tempOrder in enumerate(orders):
+            res.append(f"Order {k + 1}:\n" + tempOrder.print_order())
         return order, "\n------------------------------------------\n".join(res)
 
     def suggest(*_) -> (Order, str):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
-            Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
+            Cuts.pid == Participant.pid).filter(and_((Cuts.name != paid_string), (Cuts.name != "tip"))).order_by(
             Cuts.timestamp.desc()).limit(5).all()
         return order, f"As your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
             item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
@@ -358,7 +356,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             to_add = {k: v for k, v in to_add.items() if v not in duplicates}
 
 
-        logging.debug(f"to_add without duplicates: {to_add}")
+        logging.debug(f"to_add without duplicates: {to_add} - {duplicates_str}")
 
         for user in to_add:
             user = user.lower()
@@ -391,7 +389,14 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                         .values(is_active=True, matrix_address=user.lower())
                     )
                     added_users.append(user)
-
+                # case 2.3: user with taken username not in room anymore
+                elif taken_username.matrix_address not in members:
+                    logging.debug(f"case 2.3: {user}")
+                    session.execute(
+                        update(Participant).where(Participant.name == members[user].lower())
+                        .values(matrix_address=user.lower())
+                    )
+                    added_users.append(user)
             elif user in users and members[user].lower() in user_names:
                 # case 3: user name and matrix address already taken
                 logging.debug(f"case 3: {user}")
@@ -406,10 +411,10 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                 pass
         session.commit()
         if not added_users:
-            ret = "No new users added"
+            ret = "No new users added" + ("\nduplicate Usernames: " + duplicates_str if duplicates else "")
         else:
             logging.debug(f"added users: {added_users}")
-            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + "\n" + ("Duplicates: " + duplicates_str if duplicates else "")
+            ret = "\n".join([f"added {user}:{members[user].title()}" for user in added_users]) + ("\nduplicate Usernames: " + duplicates_str if duplicates else "")
         return order, ret
 
     def register(namespace: Dict[str, Any]) -> (Order, str):
@@ -440,10 +445,17 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             session.add(
                 Cuts(pid=cur_user.pid, cut=bal, name="initial balance")
             )
-            session.commit()
             cur_user.user_total = bal
             session.commit()
             return order, f"Set init balance for {cur_user.name.title()} to {cent_to_euro(bal)}"
+        elif namespace["force"]:
+            change = bal - cur_user.user_total
+            cur_user.user_total = bal
+            session.add(
+                Cuts(pid=cur_user.pid, cut=change, name="initial balance")
+            )
+            session.commit()
+            return order, f"Set balance for {cur_user.name.title()} to {cent_to_euro(bal)} -- by FORCE"
         else:
             return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
 
@@ -598,6 +610,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     init_parser.set_defaults(func=init)
     init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="name of user")
     init_parser.add_argument("balance", type=float, help="balance")
+    init_parser.add_argument("--force", "-f", action='store_true', help="force initialization, even if balance is not zero")
 
     deinit_parser = user_subparser.add_parser(cmd[16], help="deactivates user, if balance is zero")
     deinit_parser.set_defaults(func=deinit)
@@ -649,4 +662,5 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
 
     except Exception as e:
         logging.error(e)
+        traceback.print_exc()
         return order, "Unknown error, please try again later."
