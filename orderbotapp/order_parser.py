@@ -559,7 +559,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     add_parser.add_argument("--name", "-n", type=str,
                             help="orderer, if different from messenger, in quotes")
 
-    tip_parser = order_subparser.add_parser(cmd[3], help="add a tip")
+    tip_parser = order_subparser.add_parser(cmd[3], help="set tip of the order")
     tip_parser.set_defaults(func=tip)
     tip_parser.add_argument("tip", type=float, help="tip amount")
 
