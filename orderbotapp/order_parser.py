@@ -389,7 +389,14 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
                         .values(is_active=True, matrix_address=user.lower())
                     )
                     added_users.append(user)
-
+                # case 2.3: user with taken username not in room anymore
+                elif taken_username.matrix_address not in members:
+                    logging.debug(f"case 2.3: {user}")
+                    session.execute(
+                        update(Participant).where(Participant.name == members[user].lower())
+                        .values(matrix_address=user.lower())
+                    )
+                    added_users.append(user)
             elif user in users and members[user].lower() in user_names:
                 # case 3: user name and matrix address already taken
                 logging.debug(f"case 3: {user}")
