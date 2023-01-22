@@ -2,17 +2,13 @@ import argparse
 import collections
 import logging
 import traceback
-from typing import List, Dict, Any
+from typing import Dict, Any
 
-from sqlalchemy import update, and_
+from sqlalchemy import and_
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
-
-from db_classes import Participant, Cuts, DB_Order
 from order import Order
 from orderbot import loglevel
-from util import cent_to_euro, euro_to_cent, save_order_in_db, no_active_order, set_recommended_payers, \
-    find_match_in_database, get_last_k_orders
+from util import *
 
 cmd = [
     "register",
@@ -137,14 +133,13 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             order.pay(name)
             save_order_in_db(order, session)
             return None, "order paid\n" + str(order)
-        elif euro_to_cent(namespace["amount"]) >= order.price + order.tip - order.sum_payed():
-            order.add_tip(euro_to_cent(namespace["amount"]) - (order.price + order.tip))
-            order.pay(name)
-            save_order_in_db(order, session)
-            return None, "order paid\n" + str(order)
         elif euro_to_cent(namespace["amount"]) > 0:
             order.pay(name, euro_to_cent(namespace["amount"]))
-            return order, f"Order partially paid\n" + str(order)
+            if order.paid:
+                save_order_in_db(order, session)
+                return None, "order paid\n" + str(order)
+            else:
+                return order, f"Order partially paid\n" + str(order)
         else:
             return order, f"amount must be positive"
 
@@ -162,7 +157,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         last_order = session.query(DB_Order, Cuts, Participant).join(Cuts, Cuts.oid == DB_Order.oid).join(Participant,
                                                                                                           Cuts.pid == Participant.pid) \
             .filter(Participant.name == cur_user.name).filter(
-            and_(Cuts.name != "paid amount", Cuts.name != "tip")).order_by(DB_Order.oid.desc()).first()
+            and_(Cuts.name != paid_string, Cuts.name != "tip")).order_by(DB_Order.oid.desc()).first()
         if last_order is None:
             return order, "No previous order found"
         else:
@@ -301,13 +296,13 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     def history(namespace: Dict[str, Any]) -> (Order, str):
         orders = get_last_k_orders(session, namespace["k"], False)
         res = []
-        for k, order in enumerate(orders):
-            res.append(f"Order {k + 1}:\n" + order.print_order())
+        for k, tempOrder in enumerate(orders):
+            res.append(f"Order {k + 1}:\n" + tempOrder.print_order())
         return order, "\n------------------------------------------\n".join(res)
 
     def suggest(*_) -> (Order, str):
         last_orders = session.query(Cuts, Participant).filter(Participant.matrix_address == sender.lower()).filter(
-            Cuts.pid == Participant.pid).filter(and_((Cuts.name != "paid amount"), (Cuts.name != "tip"))).order_by(
+            Cuts.pid == Participant.pid).filter(and_((Cuts.name != paid_string), (Cuts.name != "tip"))).order_by(
             Cuts.timestamp.desc()).limit(5).all()
         return order, f"As your last {len(last_orders)} order(s), you ordered: \n" + "\n".join(
             item[0].name + ", " + cent_to_euro(item[0].cut) for item in last_orders)
