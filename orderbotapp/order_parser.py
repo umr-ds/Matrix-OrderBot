@@ -496,8 +496,14 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             amount = euro_to_cent(namespace["amount"])
         else:
             amount = origin_user.user_total
-        origin_user.user_total -= amount
-        destination_user.user_total += amount
+        origin_user.user_total += amount
+        destination_user.user_total -= amount
+        session.add(
+            Cuts(pid=origin_user.pid, cut=amount, name="transfer to " + destination_user.name)
+        )
+        session.add(
+            Cuts(pid=destination_user.pid, cut=-amount, name="transfer from " + origin_user.name)
+        )
         session.commit()
         return order, f"Transferred {cent_to_euro(amount)} from {origin_user.name.title()} to {destination_user.name.title()}"
 
