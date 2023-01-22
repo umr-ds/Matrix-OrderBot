@@ -438,10 +438,17 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
             session.add(
                 Cuts(pid=cur_user.pid, cut=bal, name="initial balance")
             )
-            session.commit()
             cur_user.user_total = bal
             session.commit()
             return order, f"Set init balance for {cur_user.name.title()} to {cent_to_euro(bal)}"
+        elif namespace["force"]:
+            change = bal - cur_user.user_total
+            cur_user.user_total = bal
+            session.add(
+                Cuts(pid=cur_user.pid, cut=change, name="initial balance")
+            )
+            session.commit()
+            return order, f"Set balance for {cur_user.name.title()} to {cent_to_euro(bal)} -- by FORCE"
         else:
             return order, f"Balance of {cur_user.name.title()} is not zero, use 'balance' to check"
 
@@ -590,6 +597,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
     init_parser.set_defaults(func=init)
     init_parser.add_argument("name", nargs=argparse.ONE_OR_MORE, type=str, help="name of user")
     init_parser.add_argument("balance", type=float, help="balance")
+    init_parser.add_argument("--force", "-f", action='store_true', help="force initialization, even if balance is not zero")
 
     deinit_parser = user_subparser.add_parser(cmd[16], help="deactivates user, if balance is zero")
     deinit_parser.set_defaults(func=deinit)
