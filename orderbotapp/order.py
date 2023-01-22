@@ -112,13 +112,18 @@ class Order:
         if user not in self.order:
             self.order[user] = []
         if amount is None:
-            self.payers[user] = self.price + self.tip - self.sum_payed()
+            self.payers[user] = self.price + self.tip - self.sum_payed() + self.payers[user] if user in self.payers else self.price + self.tip - self.sum_payed()
             self.paid = True
         else:
-            self.payers[user] = amount
-            if self.price <= sum(self.payers.values()):
+            already_paid = self.payers[user] if user in self.payers else 0
+            remaining = self.price + self.tip - self.sum_payed()
+            if amount - already_paid >= remaining:
+                self.payers[user] = amount
                 self.paid = True
-                self.tip = - self.price + sum(self.payers.values())
+                self.tip = self.sum_payed() - self.price
+            else:
+                self.payers[user] = amount
+                self.paid = False
 
 
     def to_dborder(self) -> DB_Order:
