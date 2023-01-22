@@ -136,3 +136,22 @@ class Order:
 
     def sum_payed(self) -> int:
         return sum(self.payers.values())
+
+    def set_tip(self, ttip):
+        if ttip >= 0:
+            self.tip = ttip
+
+    def remove_all(self):
+        self.order = {}
+        self.price = 0
+        self.paid = False
+        self.recommended_payer = None
+
+    def edit_pos(self, user: str, item: str, amount: int) -> None:
+        if user in self.order:
+            for c, entry in enumerate(self.order[user]):
+                if entry[0].lower() == item.lower():
+                    self.price = self.price - entry[1] + amount
+                    self.order[user][c] = (entry[0], amount)
+                    return True
+        return False
