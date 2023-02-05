@@ -1,7 +1,7 @@
 import logging
-from typing import Union, Tuple, List, Dict
+from typing import Tuple, List, Dict
 
-from db_classes import DB_Order
+from orderbot.db_classes import DB_Order
 
 order_version: int = 1
 
@@ -9,7 +9,6 @@ order_version: int = 1
 class Order:
 
     def __init__(self, name="Order"):
-        import util
         self.order: dict[str, List[Tuple[str, int]]] = {}
         self.name: str = name
         self.price: int = 0
@@ -23,7 +22,7 @@ class Order:
         return self.print_order()
 
     def print_order(self, user: str = None) -> str:
-        import util
+        import orderbot.util
         title = f"{self.name}"
         if len(self.order) > 0:
             maxName = max([len(user) for user in self.order])
@@ -40,25 +39,25 @@ class Order:
                 if item[0] == "paid amount":
                     continue
                 if count == 0:
-                    order += f"{item[0]:<{maxItem}} {util.cent_to_euro(item[1]):>{maxAmount}}"
+                    order += f"{item[0]:<{maxItem}} {orderbot.util.cent_to_euro(item[1]):>{maxAmount}}"
                     count += 1
                 else:
-                    order += f"{'':<{maxName + 2}}{item[0]:<{maxItem}} {util.cent_to_euro(item[1]):>{maxAmount}}"
+                    order += f"{'':<{maxName + 2}}{item[0]:<{maxItem}} {orderbot.util.cent_to_euro(item[1]):>{maxAmount}}"
                 order += "\n"
 
         recommadation = f"(Recommended Payer: {self.recommended_payer[0].title() if self.recommended_payer else 'None'} [{self.recommended_payer[1] if self.recommended_payer else '0'}])"
         if self.paid is True:
-            paid_string = f"Paid by {', '.join([f'{user.title()} [{util.cent_to_euro(self.payers[user])}]' for user in self.payers])}"
+            paid_string = f"Paid by {', '.join([f'{user.title()} [{orderbot.util.cent_to_euro(self.payers[user])}]' for user in self.payers])}"
         elif self.paid is False and len(self.payers) > 0:
-            paid_string = f"Partially paid by {', '.join([f'{user.title()} [{util.cent_to_euro(self.payers[user])}]' for user in self.payers])}"
-            paid_string += f" (Missing {util.cent_to_euro(self.price + self.tip - self.sum_payed())})"
+            paid_string = f"Partially paid by {', '.join([f'{user.title()} [{orderbot.util.cent_to_euro(self.payers[user])}]' for user in self.payers])}"
+            paid_string += f" (Missing {orderbot.util.cent_to_euro(self.price + self.tip - self.sum_payed())})"
         else:
             paid_string = "Not paid yet"
 
         s = (title, order,
-             f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {util.cent_to_euro(self.tip):>{maxAmount}}",
-             f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {util.cent_to_euro(self.price):>{maxAmount}}",
-             f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {util.cent_to_euro((self.tip + self.price)):>{maxAmount}}",
+             f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro(self.tip):>{maxAmount}}",
+             f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro(self.price):>{maxAmount}}",
+             f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro((self.tip + self.price)):>{maxAmount}}",
              recommadation,
              paid_string)
 

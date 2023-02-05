@@ -7,9 +7,9 @@ from typing import Dict, Any
 from sqlalchemy import and_
 from sqlalchemy.exc import SQLAlchemyError
 
-from order import Order
-from orderbot import loglevel
-from util import *
+from orderbot.order import Order
+from orderbot.orderbot import loglevel
+from orderbot.util import *
 
 cmd = [
     "register",

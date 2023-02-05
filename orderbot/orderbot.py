@@ -9,9 +9,8 @@ from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError, Matrix
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-import order_parser
-from db_classes import setup_db
-from order import order_version
+from orderbot.db_classes import setup_db
+from orderbot.order import order_version
 
 loglevel = log.DEBUG
 log.basicConfig(format="%(levelname)s|%(asctime)s: %(message)s", level=log.DEBUG)
@@ -35,6 +34,10 @@ class Orderbot:
         try:
             log.debug("Testing")
             log.debug(os.environ["DBPATH"])
+            log.debug(os.environ["MUSERNAME"])
+            log.debug(os.environ["MSERVER"])
+            log.debug(os.environ["MPASSWORD"])
+
             setup_db(os.environ["DBPATH"])
             db = create_engine(os.environ["DBPATH"])
             # create session for db
@@ -155,7 +158,9 @@ class Orderbot:
                     await self.get_members()
 
                 # parse message
-                order, response = order_parser.parse_input(single_line, self.session, self.order, event.sender, self.members)
+                import orderbot.order_parser
+                order, response = orderbot.order_parser.parse_input(single_line, self.session, self.order, event.sender,
+                                                                    self.members)
                 log.debug(f"Body:{event.body}, Msg:{response}")
                 # put received response onto msg stack
                 self.msg.append(response)
@@ -181,12 +186,15 @@ class Orderbot:
                         (await self.client.joined_members(self.room)).members}
 
 
-
-async def main():
+async def run_bot():
     bot = Orderbot()
     await bot.connect()
     await bot.listen()
 
 
+def main():
+    asyncio.run(run_bot())
+
+
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()

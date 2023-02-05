@@ -1,13 +1,5 @@
 FROM python:3.8
 
-ADD orderbot/util.py .
-ADD orderbot/orderbot.py .
-ADD orderbot/order.py .
-ADD orderbot/order_parser.py .
-ADD orderbot/db_classes.py .
+RUN pip install matrix-orderbot
 
-COPY requirements.txt .
-
-RUN pip install -r requirements.txt
-
-CMD ["python", "-u", "./orderbot.py"]
+CMD ["orderbot"]
