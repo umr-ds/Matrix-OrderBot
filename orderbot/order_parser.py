@@ -6,6 +6,7 @@ from typing import Dict, Any
 
 from sqlalchemy import and_
 from sqlalchemy.exc import SQLAlchemyError
+
 from order import Order
 from orderbot import loglevel
 from util import *
@@ -358,7 +359,7 @@ def parse_input(inp: List[str], session: Session, order: Order, sender: str, mem
         msg = "Current balances: \n"
         msg = msg + "\n".join(
             [
-                f"{user.name.title():<{max_name}} ({user.matrix_address if user.matrix_address else 'None':>{max_address}}): {cent_to_euro(user.user_total):>{max_balance}}"
+                f"{user.name.title():<{max_name}} {'(' + user.matrix_address + ')' if user.matrix_address else 'None':>{max_address + 2}}): {cent_to_euro(user.user_total):>{max_balance}}"
                 for user in all_balance])
         return order, msg
 

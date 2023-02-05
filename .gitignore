@@ -1,5 +1,5 @@
 .idea/
 __pycache__/
-/orderbotapp/next_batch
+/next_batch
 *.env
 *.db

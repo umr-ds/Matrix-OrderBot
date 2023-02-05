@@ -3,10 +3,9 @@ import logging as log
 import os
 import pickle
 import shlex
-
 from os.path import exists
 
-from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError, MatrixRoom, Event
+from nio import AsyncClient, RoomMessageText, RoomMemberEvent, SyncError, MatrixRoom
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -34,6 +33,8 @@ class Orderbot:
         if os.getenv("MHOMEROOM"):
             self.room = os.environ["MHOMEROOM"]
         try:
+            log.debug("Testing")
+            log.debug(os.environ["DBPATH"])
             setup_db(os.environ["DBPATH"])
             db = create_engine(os.environ["DBPATH"])
             # create session for db
@@ -98,7 +99,7 @@ class Orderbot:
                 with open("next_batch", "w") as next_batch_token:
                     next_batch_token.write(sync_response.next_batch)
                 self.room = room_id
-                with open("../room.env", "w") as room_env:
+                with open("room.env", "w") as room_env:
                     room_env.write(f"MHOMEROOM={room_id}")
                 log.info(f"joined room {room_id}")
                 break
@@ -110,7 +111,7 @@ class Orderbot:
             while isinstance(sync_response, SyncError):
                 sync_response = await self.client.sync(6000)
 
-            with open("next_batch", "w") as next_batch_token:
+            with open("../next_batch", "w") as next_batch_token:
                 next_batch_token.write(sync_response.next_batch)
 
             # empty message stack
