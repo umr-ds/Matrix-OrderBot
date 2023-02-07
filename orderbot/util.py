@@ -29,7 +29,7 @@ def euro_to_cent(f: float) -> int:
     :param f: float
     :return: int
     """
-    return int(Decimal(f * 100).quantize(Decimal('1'), rounding=ROUND_HALF_DOWN))
+    return int(Decimal(f * 100).quantize(Decimal("1"), rounding=ROUND_HALF_DOWN))
 
 
 def split_tip(tip: int, number_of_shares: int) -> List[int]:
@@ -62,8 +62,13 @@ def save_order_in_db(order: Order, session: Session) -> None:
     """
 
     # register all user in db, if not already in there.
-    all_registered_users = [name for name_tuple in session.query(Participant.name, Participant.matrix_address).all() for
-                            name in name_tuple]
+    all_registered_users = [
+        name
+        for name_tuple in session.query(
+            Participant.name, Participant.matrix_address
+        ).all()
+        for name in name_tuple
+    ]
     # add order into db
     db_order = order.to_dborder()
     session.add(db_order)
@@ -81,34 +86,42 @@ def save_order_in_db(order: Order, session: Session) -> None:
                 session.add(Participant(name=user))
                 session.commit()
 
-        user_id = session.query(Participant.pid) \
-            .where(or_(Participant.name == user, Participant.matrix_address == user)) \
+        user_id = (
+            session.query(Participant.pid)
+            .where(or_(Participant.name == user, Participant.matrix_address == user))
             .first()[0]
+        )
         user_tip = tip_shares[index]
         for item in order.order[user]:
-            session.add(
-                Cuts(pid=user_id, oid=db_order.oid, cut=-item[1], name=item[0])
-            )
-        session.add(
-            Cuts(pid=user_id, oid=db_order.oid, cut=-user_tip, name="tip"))
+            session.add(Cuts(pid=user_id, oid=db_order.oid, cut=-item[1], name=item[0]))
+        session.add(Cuts(pid=user_id, oid=db_order.oid, cut=-user_tip, name="tip"))
         session.commit()
         # update owned ect.
         session.execute(
-            update(Participant).where(Participant.pid == user_id)
-            .values(user_total=Participant.user_total - sum(item[1] for item in order.order[user]) - user_tip)
+            update(Participant)
+            .where(Participant.pid == user_id)
+            .values(
+                user_total=Participant.user_total
+                - sum(item[1] for item in order.order[user])
+                - user_tip
+            )
         )
         session.commit()
 
     for user in order.payers:
-
-        user_id = session.query(Participant.pid) \
-            .where(or_(Participant.name == user, Participant.matrix_address == user)) \
+        user_id = (
+            session.query(Participant.pid)
+            .where(or_(Participant.name == user, Participant.matrix_address == user))
             .first()[0]
+        )
         session.add(
-            Cuts(pid=user_id, oid=db_order.oid, cut=order.payers[user], name=paid_string)
+            Cuts(
+                pid=user_id, oid=db_order.oid, cut=order.payers[user], name=paid_string
+            )
         )
         session.execute(
-            update(Participant).where(Participant.pid == user_id)
+            update(Participant)
+            .where(Participant.pid == user_id)
             .values(user_total=Participant.user_total + order.payers[user])
         )
         session.commit()
@@ -128,8 +141,13 @@ def set_recommended_payers(order: Order, session: Session) -> None:
     :param session: Session
     :return: None
     """
-    user = session.query(Participant).where(Participant.is_active.is_(True)).filter(
-        Participant.name.in_(order.order.keys())).order_by(Participant.user_total).first()
+    user = (
+        session.query(Participant)
+        .where(Participant.is_active.is_(True))
+        .filter(Participant.name.in_(order.order.keys()))
+        .order_by(Participant.user_total)
+        .first()
+    )
     if user:
         order.recommended_payer = (user.name.title(), cent_to_euro(user.user_total))
 
@@ -146,7 +164,9 @@ def find_match_in_database(name, session: Session, active: bool = False) -> Part
     name = name.lower()
     handle = re.match(r"@(\S+):\S+\.\S+", name)
     if handle:
-        cur_user = session.query(Participant).where(Participant.matrix_address == name).first()
+        cur_user = (
+            session.query(Participant).where(Participant.matrix_address == name).first()
+        )
     else:
         cur_user = session.query(Participant).where(Participant.name == name).first()
     if active:
@@ -157,7 +177,9 @@ def find_match_in_database(name, session: Session, active: bool = False) -> Part
     return cur_user
 
 
-def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> List[Order]:
+def get_last_k_orders(
+    session: Session, k: int = 5, delete: bool = False
+) -> List[Order]:
     """
     get last k orders from db
     if delete is true, delete orders from db
@@ -166,11 +188,20 @@ def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> Lis
     :param delete: bool
     :return: List[Order]
     """
-    orders_oids = session.query(DB_Order.oid, DB_Order.name).order_by(DB_Order.oid.desc()).limit(k).all()
+    orders_oids = (
+        session.query(DB_Order.oid, DB_Order.name)
+        .order_by(DB_Order.oid.desc())
+        .limit(k)
+        .all()
+    )
     orders = []
-    for (oid, name) in orders_oids:
-        cuts = session.query(Cuts, Participant).join(Participant, Cuts.pid == Participant.pid).where(
-            Cuts.oid == oid).all()
+    for oid, name in orders_oids:
+        cuts = (
+            session.query(Cuts, Participant)
+            .join(Participant, Cuts.pid == Participant.pid)
+            .where(Cuts.oid == oid)
+            .all()
+        )
         ord = Order(name)
         for cut, participant in cuts:
             if cut.name == paid_string:
@@ -188,7 +219,8 @@ def get_last_k_orders(session: Session, k: int = 5, delete: bool = False) -> Lis
             session.query(DB_Order).where(DB_Order.oid == oid).delete()
             for cut, participant in cuts:
                 session.execute(
-                    update(Participant).where(Participant.pid == participant.pid)
+                    update(Participant)
+                    .where(Participant.pid == participant.pid)
                     .values(user_total=Participant.user_total - cut.cut)
                 )
             session.commit()

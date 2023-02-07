@@ -7,7 +7,6 @@ order_version: int = 1
 
 
 class Order:
-
     def __init__(self, name="Order"):
         self.order: dict[str, List[Tuple[str, int]]] = {}
         self.name: str = name
@@ -23,10 +22,13 @@ class Order:
 
     def print_order(self, user: str = None) -> str:
         import orderbot.util
+
         title = f"{self.name}"
         if len(self.order) > 0:
             maxName = max([len(user) for user in self.order])
-            maxItem = max([len(item[0]) for user in self.order for item in self.order[user]])
+            maxItem = max(
+                [len(item[0]) for user in self.order for item in self.order[user]]
+            )
             maxAmount = len(str(self.price + self.tip)) + 1
         else:
             return "empty order"
@@ -54,15 +56,17 @@ class Order:
         else:
             paid_string = "Not paid yet"
 
-        s = (title, order,
-             f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro(self.tip):>{maxAmount}}",
-             f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro(self.price):>{maxAmount}}",
-             f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro((self.tip + self.price)):>{maxAmount}}",
-             recommadation,
-             paid_string)
+        s = (
+            title,
+            order,
+            f"{'Tip:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro(self.tip):>{maxAmount}}",
+            f"{'Total:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro(self.price):>{maxAmount}}",
+            f"{'Sum:':<{maxName + 2}}{'':<{maxItem}} {orderbot.util.cent_to_euro((self.tip + self.price)):>{maxAmount}}",
+            recommadation,
+            paid_string,
+        )
 
         return "\n".join(s)
-
 
     def add_pos(self, user: str, item: str, amount: int) -> None:
         if user in self.order:
@@ -71,7 +75,6 @@ class Order:
             self.order[user] = [(item, amount)]
         self.price = self.price + amount
         self.paid = False
-
 
     def remove(self, user: str, item: str = None) -> None:
         if user.lower() not in self.order:
@@ -92,26 +95,26 @@ class Order:
         if self.price <= sum(self.payers.values()):
             self.paid = True
 
-
     def add_tip(self, tip: int) -> None:
         if tip >= 0:
             self.tip = self.tip + tip
 
-
     def remove_tip(self):
         self.tip = 0
-
 
     def sum_order(self, user: str) -> int:
         if user in self.order:
             return sum([item[0] for item in self.order[user]])
 
-
     def pay(self, user: str, amount: int = None) -> None:
         if user not in self.order:
             self.order[user] = []
         if amount is None:
-            self.payers[user] = self.price + self.tip - self.sum_payed() + self.payers[user] if user in self.payers else self.price + self.tip - self.sum_payed()
+            self.payers[user] = (
+                self.price + self.tip - self.sum_payed() + self.payers[user]
+                if user in self.payers
+                else self.price + self.tip - self.sum_payed()
+            )
             self.paid = True
         else:
             already_paid = self.payers[user] if user in self.payers else 0
@@ -124,11 +127,10 @@ class Order:
                 self.payers[user] = amount
                 self.paid = False
 
-
     def to_dborder(self) -> DB_Order:
-        return DB_Order(name=self.name, total=self.price + self.tip, price=self.price,
-                        tip=self.tip)
-
+        return DB_Order(
+            name=self.name, total=self.price + self.tip, price=self.price, tip=self.tip
+        )
 
     def set_recommended_payer(self, user: str, amount: int) -> None:
         self.recommended_payer = (user, amount)

@@ -17,7 +17,6 @@ log.basicConfig(format="%(levelname)s|%(asctime)s: %(message)s", level=log.DEBUG
 
 
 class Orderbot:
-
     def __init__(self):
         self.client = None
         self.session = None
@@ -45,8 +44,8 @@ class Orderbot:
             self.session = Session()
 
             # log into matrix
-            self.client = AsyncClient(os.environ['MSERVER'], "@" + self.username)
-            log.info(await self.client.login(os.environ['MPASSWORD']))
+            self.client = AsyncClient(os.environ["MSERVER"], "@" + self.username)
+            log.info(await self.client.login(os.environ["MPASSWORD"]))
         except Exception as error:
             log.error(error)
 
@@ -80,21 +79,28 @@ class Orderbot:
             sync_response = await self.client.sync(1000)
             # already in a room, and that room = homerome => end
             if len(sync_response.rooms.join) > 0:
-                if os.getenv("MHOMEROOM") and os.getenv("MHOMEROOM") in list(sync_response.rooms.join.keys()):
+                if os.getenv("MHOMEROOM") and os.getenv("MHOMEROOM") in list(
+                    sync_response.rooms.join.keys()
+                ):
                     log.info(f"In Room {os.getenv('MHOMEROOM')}")  #
-                    self.room = os.getenv('MHOMEROOM')
+                    self.room = os.getenv("MHOMEROOM")
                     break
                 else:
                     os.environ["MHOMEROOM"] = list(sync_response.rooms.join.keys())[0]
                     with open("../room.env", "w") as room_env:
-                        room_env.write(f"MHOMEROOM={list(sync_response.rooms.join.keys())[0]}")
-                    self.room = os.getenv('MHOMEROOM')
+                        room_env.write(
+                            f"MHOMEROOM={list(sync_response.rooms.join.keys())[0]}"
+                        )
+                    self.room = os.getenv("MHOMEROOM")
                     log.info(f"joined room {list(sync_response.rooms.join.keys())[0]}")
                     break
 
             # not in a room => wait for invite
             # if invited:
-            if len(sync_response.rooms.join) == 0 and len(sync_response.rooms.invite) > 0:
+            if (
+                len(sync_response.rooms.join) == 0
+                and len(sync_response.rooms.invite) > 0
+            ):
                 room_id = list(sync_response.rooms.invite.keys())[0]
                 # join room and save room_id
                 await self.client.join(room_id)
@@ -125,13 +131,10 @@ class Orderbot:
                         "body": f"```{msg}```",
                         "format": "org.matrix.custom.html",
                         "formatted_body": f"<pre><code>{msg}</code></pre>",
-                        "msgtype": "m.text"
+                        "msgtype": "m.text",
                     }
                 else:
-                    content = {
-                        "body": msg,
-                        "msgtype": "m.text"
-                    }
+                    content = {"body": msg, "msgtype": "m.text"}
                 await self.client.room_send(self.room, "m.room.message", content)
 
     async def message_cb(self, room: MatrixRoom, event: RoomMessageText) -> None:
@@ -159,8 +162,10 @@ class Orderbot:
 
                 # parse message
                 import orderbot.order_parser
-                order, response = orderbot.order_parser.parse_input(single_line, self.session, self.order, event.sender,
-                                                                    self.members)
+
+                order, response = orderbot.order_parser.parse_input(
+                    single_line, self.session, self.order, event.sender, self.members
+                )
                 log.debug(f"Body:{event.body}, Msg:{response}")
                 # put received response onto msg stack
                 self.msg.append(response)
@@ -182,8 +187,10 @@ class Orderbot:
 
     # get all members from room
     async def get_members(self) -> None:
-        self.members = {member.user_id: member.display_name for member in
-                        (await self.client.joined_members(self.room)).members}
+        self.members = {
+            member.user_id: member.display_name
+            for member in (await self.client.joined_members(self.room)).members
+        }
 
 
 async def run_bot():
@@ -196,5 +203,5 @@ def main():
     asyncio.run(run_bot())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

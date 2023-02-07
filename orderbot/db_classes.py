@@ -1,4 +1,12 @@
-from sqlalchemy import Column, Integer, String, DATETIME, ForeignKey, create_engine, Boolean
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DATETIME,
+    ForeignKey,
+    create_engine,
+    Boolean,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import now
@@ -12,7 +20,9 @@ class Participant(Base):
     name = Column(String, unique=True)
     matrix_address = Column(String, unique=True)
     user_total = Column(Integer, default=0)
-    cuts = relationship('Cuts', backref='participants', lazy=True, cascade="all,delete-orphan")
+    cuts = relationship(
+        "Cuts", backref="participants", lazy=True, cascade="all,delete-orphan"
+    )
     is_active = Column(Boolean, default=True)
 
 
@@ -24,14 +34,16 @@ class DB_Order(Base):
     price = Column(Integer)
     tip = Column(Integer)
     timestamp = Column(DATETIME, default=now())
-    cuts = relationship('Cuts', backref="orders", lazy=True, cascade="all,delete-orphan")
+    cuts = relationship(
+        "Cuts", backref="orders", lazy=True, cascade="all,delete-orphan"
+    )
 
 
 class Cuts(Base):
     __tablename__ = "cuts"
     cid = Column(Integer, primary_key=True)
-    pid = Column(Integer, ForeignKey('participants.pid'))
-    oid = Column(Integer, ForeignKey('orders.oid'))
+    pid = Column(Integer, ForeignKey("participants.pid"))
+    oid = Column(Integer, ForeignKey("orders.oid"))
     cut = Column(Integer)
     name = Column(String)
     timestamp = Column(DATETIME, default=now())
